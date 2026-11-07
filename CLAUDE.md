@@ -54,8 +54,9 @@ tracks videos itself (adapted from ezTrack).
   and `environment.yml` in step (the regression test checks). `.sh` and
   `.command` are LF via `.gitattributes`.
 - `Open Track Tamer.command`: Mac double-click launcher.
-- Project folder: `Desktop/Tracker Tamer` (was `EZanalyze`; renamed by the
-  user 2026-11-05). The path has a space, so always quote it.
+- Project folder: `/Volumes/AI Files/Track Tamer` (moved there by the user
+  2026-11-07; before that `Desktop/Tracker Tamer`, originally `EZanalyze`).
+  The path has spaces, so always quote it.
 - Git repo pushed to GitHub `vtbrak/TrackTamer` (**public**, GPL-3.0; renamed from
   `EZAnalyze` 2026-11-05, and the old URL redirects). `*.csv`,
   `config.json`, and export outputs (`*_analysis.xlsx`, `*_path.png`,
@@ -167,6 +168,6 @@ describes them).
 
 ## How to run
 ```bash
-cd ~/Desktop/"Tracker Tamer" && ./.venv/bin/python gui.py
+cd "/Volumes/AI Files/Track Tamer" && ./.venv/bin/python gui.py
 ```
 Or double-click `Open Track Tamer.command`.
