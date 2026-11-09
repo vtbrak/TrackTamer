@@ -90,6 +90,13 @@ check("scoring after Analyze updates the results at once",
       and e.summary["OR_DiscriminationIndex"] > 0)
 check("Time Bins carry interaction time per bin",
       abs(e.bins["OR_Time_object 2_s"].sum() - e.summary["OR_Time_object 2_s"]) < 0.03)
+keep = e.summary["OR_Time_object 2_s"]
+app.review._save_trial({"object 1": "Moved"}, "4", "Training"); app.update()
+check("editing trial info after Analyze updates the results at once (no re-tracking)",
+      e.summary["OR_Day"] == "4" and e.summary["OR_Phase"] == "Training"
+      and "object 1 (moved)" in e.summary["OR_NovelObjects"]
+      and e.summary["OR_Time_object 2_s"] == keep)
+app.review._save_trial({"object 1": "Familiar"}, "2", "Test"); app.update()
 app._set_selection([0], focus=0); app.export(); app.update()
 xlsx = os.path.splitext(VIDEO)[0] + "_analysis.xlsx"
 check("export writes the workbook", os.path.exists(xlsx))

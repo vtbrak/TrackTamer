@@ -705,7 +705,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         # Review tab: the selected file's video with its tracking drawn on, and
         # the moments to check (outside the regions; long ones flagged).
         self.review = ReviewPanel(self.nb, on_cutoff=self._save_review_cutoff,
-                                  on_scored=self._on_scored)
+                                  on_scored=self._on_scored,
+                                  on_trial_info=self._on_trial_info)
         self.nb.add(self.review, text="Review")
         self.nb.bind("<<NotebookTabChanged>>", lambda _e: self._on_tab_change())
 
@@ -1130,6 +1131,16 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             if e.data is data and e.analyzed:
                 self._object_results(e)
                 self._refresh()
+
+    def _on_trial_info(self, data, kinds: dict, day: str, phase: str) -> None:
+        """Object types, day or phase were edited after tracking: keep the
+        video's setup in step (so tracking again keeps them), then update the
+        results."""
+        for e in self.files:
+            if e.data is data and e.video is not None:
+                e.video.object_kinds.update(kinds)
+                e.video.trial_day, e.video.trial_phase = day, phase
+        self._on_scored(data)
 
     def _object_results(self, entry) -> None:
         """Work out an analyzed file's results again (its scoring or the

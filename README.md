@@ -123,7 +123,10 @@ time, bouts and latency per object; total; **discrimination index** =
 (novel − familiar) / (novel + familiar) time and **% preference** = novel /
 (novel + familiar) × 100 (novel = objects marked Novel or Moved); zone time
 and visits per object; day, phase and the novel object(s). They update as you
-score. The export adds an **Interactions** sheet.
+score. The export adds an **Interactions** sheet. **Edit trial info…** in the
+Review tab changes each object's type, the trial day and the phase after
+tracking, with no re-tracking. **Save as video…** draws the objects and zones
+on the saved `_tracked.mp4`.
 
 **Time bins** (per file): the session split into fixed-length bins (default
 60 s) with distance, mean speed, and time-in-zone per bin, plus the chosen

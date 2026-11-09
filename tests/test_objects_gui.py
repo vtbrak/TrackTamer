@@ -183,6 +183,67 @@ check("changing the zone distance updates the visit list (no re-tracking)",
       len(rv.scorer.visits) != n_before or rv.scorer.zone_cm == 0)
 app.zone_var.set("3"); app.update()
 
+# Edit object types, day and phase after tracking (ROADMAP §15).
+check("Edit trial info button shown for Object Recognition", bool(rv.trial_btn.winfo_manager()))
+rv.edit_trial(); app.update()
+dlg = rv.trial_dialog
+check("the dialog starts from the file's own values",
+      dlg.day_var.get() == "3" and dlg.phase_var.get() == "Test"
+      and dlg.kind_vars["object 2"].get() == "Novel")
+csv_before = pd.read_csv(csv, dtype=str, keep_default_na=False)
+dlg.day_var.set("5"); dlg.phase_var.set("Training"); dlg.kind_vars["object 1"].set("Moved")
+log.clear(); real_replace = os.replace
+def locked(*a):
+    raise PermissionError("the file is open")
+os.replace = locked
+dlg.save(); app.update()
+os.replace = real_replace
+check("if the file can't be saved it says so, stays open, and nothing changes",
+      "The trial info couldn't be saved" in log and dlg.winfo_exists()
+      and pd.read_csv(csv, dtype=str, keep_default_na=False).equals(csv_before)
+      and rv.scorer.objects[0].kind == "Familiar"
+      and not os.path.exists(csv + ".tmp"))
+scored_before = load_scoring(app.files[0].data)
+dlg.save(); app.update()
+reread = load_csv(csv)
+check("Save writes the tracking file and closes the dialog",
+      not dlg.winfo_exists() and reread.settings["Trial_Phase"] == "Training"
+      and str(int(reread.settings["Trial_Day"])) == "5" and '"kind": "Moved"' in reread.settings["Objects"])
+check("the Review tab and the playback window show the new types at once",
+      rv.scorer.objects[0].kind == "Moved" and "Trial day 5, phase Training" in rv.summary.cget("text")
+      and "object 1 moved" in rv.summary.cget("text")
+      and any("object 1 (moved)" == pw.canvas.itemcget(i, "text")
+              for i in pw.canvas.find_all() if pw.canvas.type(i) == "text"))
+check("logged interactions stay; the video's setup follows (tracking again keeps the edit)",
+      load_scoring(app.files[0].data).bouts == scored_before.bouts
+      and v.object_kinds["object 1"] == "Moved" and (v.trial_day, v.trial_phase) == ("5", "Training"))
+
+# The saved video shows the objects and their zones.
+import cv2, time as _time
+from core.playback import draw_tracking, tracked_video_path
+pw.roi_var.set(True); pw.save_video()
+t0 = _time.time()
+while pw._save is not None and _time.time() - t0 < 120:
+    pw.update(); _time.sleep(0.02)
+saved = tracked_video_path(pw.pb.video)
+cap = cv2.VideoCapture(saved); ok, out = cap.read(); cap.release()
+raw = pw.source.frame(0)
+o1 = rv.scorer.objects[0]
+angles = np.linspace(0, 2 * np.pi, 72, endpoint=False)
+on_ring = [out[int(o1.y + o1.r * np.sin(a)), int(o1.x + o1.r * np.cos(a))].astype(int) for a in angles]
+base = [raw[int(o1.y + o1.r * np.sin(a)), int(o1.x + o1.r * np.cos(a))].astype(int) for a in angles]
+check("saved _tracked.mp4 has the object circles drawn on",
+      ok and np.abs(np.array(on_ring) - np.array(base)).mean() > 25)
+blank = np.zeros_like(raw)
+plain = draw_tracking(blank, pw.pb, 0, 0, True)
+drawn = draw_tracking(blank, pw.pb, 0, 0, True, rv.scorer.objects, rv.scorer.zone_px)
+zone_r = o1.r + rv.scorer.zone_px
+near_ring = drawn[max(int(o1.y - zone_r - 2), 0):int(o1.y + zone_r + 3),
+                  max(int(o1.x - zone_r - 2), 0):int(o1.x + zone_r + 3)]
+check("the objects and zones are only drawn when asked",
+      (plain != drawn).any() and (near_ring == 255).any())
+os.remove(saved)
+
 folder = tempfile.mkdtemp()
 for name in ("a.mp4", "a_LocationOutput.csv", "a_ObjectScoring.csv",
              "2026-11-05_16-56-42_EPM_Overhead_frames.csv", "2026-11-05_16-56-42_EPM_info.csv"):

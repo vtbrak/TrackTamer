@@ -30,8 +30,9 @@ import traceback
 from tkinter import ttk
 
 from core.metrics import _outside_mask, outside_events, region_labels, secs
-from core.objects import (Bout, distance_px, file_objects, load_scoring, object_at,
-                          save_scoring, scoring_path, zone_visits)
+from core.objects import (KINDS, PHASES, Bout, distance_px, file_objects, load_scoring,
+                          object_at, save_scoring, scoring_path, trial_info,
+                          update_trial_info, zone_visits)
 from core.playback import FrameSource, open_playback, tracked_video_path, write_tracked_video
 from dialogs import show_info, show_warning
 from setup_window import FrameCanvas
@@ -75,6 +76,8 @@ class ObjectScorer:
         self.set_zone(zone_cm)
 
     def set_zone(self, zone_cm: float) -> None:
+        if zone_cm == getattr(self, "zone_cm", None):
+            return     # same zones: keep the visits (the window may be showing one)
         self.zone_cm = zone_cm
         self.zone_px, self.scaled = distance_px(self.data, zone_cm)
         self.visits = zone_visits(self.data, self.objects, self.zone_px, self.fps,
@@ -210,9 +213,10 @@ class PlaybackWindow(tk.Toplevel):
                         command=self._redraw).pack(side=tk.LEFT, padx=(8, 0))
         self.save_btn = ttk.Button(bar2, text="Save as video…", command=self.save_video)
         self.save_btn.pack(side=tk.RIGHT)
+        shown = "objects and their zones" if self.scorer else "regions"
         Tooltip(self.save_btn, f"Write {os.path.basename(tracked_video_path(self.pb.video))} "
                                "next to the video: the session with the marker (and the "
-                               "trail and regions, if shown) drawn on, at the video's own "
+                               f"trail and {shown}, if shown) drawn on, at the video's own "
                                "frame rate. Replaces an earlier one.")
         self.save_text = ttk.Label(bar2, foreground="gray")
         self.save_text.pack(side=tk.RIGHT, padx=8)
@@ -384,11 +388,14 @@ class PlaybackWindow(tk.Toplevel):
         cancel = threading.Event()
         state = {"done": 0, "total": self.pb.n_frames, "result": None, "error": None}
         trail, rois, pb = self._trail_frames(), bool(self.roi_var.get()), self.pb
+        objects = list(self.scorer.objects) if self.scorer is not None and rois else None
+        zone_px = self.scorer.zone_px if self.scorer is not None else 0.0
 
         def work():
             try:
                 state["result"] = write_tracked_video(
                     pb, trail_frames=trail, show_regions=rois,
+                    objects=objects, zone_px=zone_px,
                     progress=lambda d, t: state.update(done=d, total=t),
                     should_cancel=cancel.is_set)
             except Exception as exc:
@@ -660,12 +667,62 @@ class PlaybackWindow(tk.Toplevel):
         self.destroy()
 
 
+class TrialInfoDialog(tk.Toplevel):
+    """Change each object's type, the trial day and the phase after tracking
+    (ROADMAP §15). `on_save(kinds, day, phase)` returns True once saved; if
+    it couldn't save, the dialog stays open."""
+
+    def __init__(self, parent, objects, day: str, phase: str, on_save):
+        super().__init__(parent)
+        self.title("Edit trial info")
+        self.transient(parent)
+        self.resizable(False, False)
+        self.on_save = on_save
+        body = ttk.Frame(self, padding=14)
+        body.pack(fill=tk.BOTH, expand=True)
+        self.day_var = tk.StringVar(value=day)
+        ttk.Label(body, text="Trial day:").grid(row=0, column=0, sticky="w", pady=3)
+        ttk.Entry(body, textvariable=self.day_var, width=6).grid(row=0, column=1, sticky="w")
+        self.phase_var = tk.StringVar(value=phase)
+        ttk.Label(body, text="Phase:").grid(row=1, column=0, sticky="w", pady=3)
+        ttk.Combobox(body, textvariable=self.phase_var, values=("",) + PHASES,
+                     state="readonly", width=12).grid(row=1, column=1, sticky="w")
+        self.kind_vars: dict[str, tk.StringVar] = {}
+        for k, o in enumerate(objects, start=2):
+            self.kind_vars[o.name] = tk.StringVar(value=o.kind)
+            ttk.Label(body, text=f"{o.name}:").grid(row=k, column=0, sticky="w", pady=3,
+                                                    padx=(0, 12))
+            ttk.Combobox(body, textvariable=self.kind_vars[o.name], values=KINDS,
+                         state="readonly", width=12).grid(row=k, column=1, sticky="w")
+        row = len(objects) + 2
+        ttk.Label(body, foreground="gray", wraplength=300, justify=tk.LEFT,
+                  text="Saved in this video's tracking file. There's no need to track "
+                       "again, and logged interactions stay as they are.").grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        buttons = ttk.Frame(body)
+        buttons.grid(row=row + 1, column=0, columnspan=2, sticky="e", pady=(12, 0))
+        ttk.Button(buttons, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(buttons, text="Save", command=self.save).pack(side=tk.RIGHT, padx=(0, 6))
+        self.bind("<Escape>", lambda _e: self.destroy())
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass  # not on screen yet; it still works without the grab
+
+    def save(self) -> None:
+        kinds = {name: var.get() for name, var in self.kind_vars.items()}
+        if self.on_save(kinds, self.day_var.get().strip(), self.phase_var.get()):
+            self.destroy()
+
+
 class ReviewPanel(ttk.Frame):
     """The Review tab: the points to review and the button that opens the
     playback window."""
 
-    def __init__(self, parent, on_cutoff=None, on_scored=None):
+    def __init__(self, parent, on_cutoff=None, on_scored=None, on_trial_info=None):
         super().__init__(parent)
+        self.on_trial_info = on_trial_info or (lambda data, kinds, day, phase: None)
+        self.trial_dialog: TrialInfoDialog | None = None
         self.on_cutoff = on_cutoff or (lambda value: None)
         self.on_scored = on_scored or (lambda data: None)
         self.scorer: ObjectScorer | None = None
@@ -688,6 +745,9 @@ class ReviewPanel(ttk.Frame):
         Tooltip(self.open_btn, "Play the selected file's video with its tracked position "
                                "drawn on, in its own window. Clicking a row below opens "
                                "it at that moment.")
+        self.trial_btn = ttk.Button(head, text="Edit trial info…", command=self.edit_trial)
+        Tooltip(self.trial_btn, "Change each object's type (familiar, novel or moved), the "
+                                "trial day and the phase, without tracking again.")
         self.cutoff_var = tk.StringVar()
         cutoff = ttk.Entry(head, textvariable=self.cutoff_var, width=5)
         cutoff.pack(side=tk.RIGHT)
@@ -807,6 +867,34 @@ class ReviewPanel(ttk.Frame):
             self.window._redraw()
             self.window._update_info()
 
+    def edit_trial(self) -> None:
+        """Open the dialog that changes the object types, day and phase."""
+        if self.scorer is None:
+            return
+        if self.trial_dialog is not None and self.trial_dialog.winfo_exists():
+            self.trial_dialog.lift()
+            return
+        day, phase = trial_info(self._data)
+        self.trial_dialog = TrialInfoDialog(self.winfo_toplevel(), self.scorer.objects, day,
+                                            phase, self._save_trial)
+
+    def _save_trial(self, kinds: dict, day: str, phase: str) -> bool:
+        """Save the edited trial info, then update everything that shows it."""
+        try:
+            update_trial_info(self._data, kinds, day, phase)
+        except (OSError, ValueError) as exc:
+            show_warning(self, "The trial info couldn't be saved",
+                         "The trial info couldn't be saved, so nothing was changed. If "
+                         f"the tracking file is open in another program, close it and "
+                         f"try again.\n\n{exc}")
+            return False
+        self.scorer.objects = file_objects(self._data)
+        self._fill_events()
+        if self.window is not None and self.window.winfo_exists():
+            self.window._redraw()
+        self.on_trial_info(self._data, kinds, day, phase)
+        return True
+
     def _scored(self) -> None:
         """The scoring changed: update the list, then the results."""
         self._fill_events()
@@ -823,6 +911,10 @@ class ReviewPanel(ttk.Frame):
             self.tree.column(col, width=width, minwidth=width, anchor=tk.CENTER,
                              stretch=col in ("Check", "Scored"))
         self.heading.configure(text="Zone visits to score" if objects else "Points to review")
+        if objects:
+            self.trial_btn.pack(side=tk.LEFT, padx=(6, 0))
+        else:
+            self.trial_btn.pack_forget()
         for w in (self.cutoff_entry, self.cutoff_label):
             if objects:
                 w.pack_forget()
@@ -877,7 +969,10 @@ class ReviewPanel(ttk.Frame):
                     f"{counts['scored']} with an interaction, {counts['none']} with none, "
                     f"{counts['']} to review (red). Click a row to open the video at the "
                     "frame the point enters the zone.")
-        self.summary.configure(text=f"{text}\nLogged so far: {totals}. Saved to "
+        day, phase = trial_info(self._data)
+        kinds = ", ".join(f"{o.name} {o.kind.lower()}" for o in sc.objects)
+        trial = f"Trial day {day or 'not set'}, phase {phase or 'not set'}: {kinds}."
+        self.summary.configure(text=f"{trial}\n{text}\nLogged so far: {totals}. Saved to "
                                     f"{os.path.basename(scoring_path(self._data))}.")
 
     def _fill_events(self) -> None:

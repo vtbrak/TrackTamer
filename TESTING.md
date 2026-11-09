@@ -93,7 +93,12 @@ not just crashes.
    - Click **Next visit ▶** (or press **]**) to go to the next one.
 4. Click **Analyze** and look at the Summary: time with each object,
    discrimination index, % preference. These update as you score.
-5. Close the program and open it again: your scoring should still be there
+5. Click **Edit trial info…** in the Review tab, change an object's type, the
+   day or the phase, and save. The Summary should update without tracking
+   again.
+6. In the playback window, click **Save as video…** and check that the
+   objects and their zones show in the saved `_tracked.mp4`.
+7. Close the program and open it again: your scoring should still be there
    (it's saved in `<video name>_ObjectScoring.csv`).
 
 ---
@@ -112,8 +117,5 @@ help:
   its `_LocationOutput.csv`.
 
 ### Known limitations
-- An object's type, the trial day and the phase can't be changed after
-  tracking (change them in setup and track again).
-- The saved `_tracked.mp4` doesn't show the objects.
 - Windows has had less testing than Mac, so Windows reports are especially
   useful.

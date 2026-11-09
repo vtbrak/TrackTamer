@@ -27,12 +27,15 @@ import numpy as np
 import pandas as pd
 
 from .loader import TrackingData
+from .objects import object_at
 from .regions import match_polygons
 from .video import VIDEO_EXTENSIONS, Prep, crop_frame, video_info
 
 MARKER_BGR = (40, 40, 255)      # red
 TRAIL_BGR = (40, 200, 255)      # amber
 ROI_BGR = (90, 220, 90)         # green
+OBJECT_BGR = (26, 159, 255)     # orange, as in the playback window
+ZONE_BGR = (255, 255, 255)      # white
 
 
 def find_video(data: TrackingData, hint: str | None = None) -> str | None:
@@ -214,11 +217,36 @@ class FrameSource:
         return prepare_color(frame, self.pb.prep)
 
 
+def _draw_objects(img: np.ndarray, objects, zone_px: float, here: str) -> None:
+    """Each object's circle, its dashed zone ring (heavier while the point is
+    in that zone) and its name and type, as in the playback window."""
+    width = img.shape[1]
+    for o in objects:
+        center = (int(round(o.x)), int(round(o.y)))
+        ring = int(round(o.r + zone_px))
+        cv2.circle(img, center, max(1, int(round(o.r))), OBJECT_BGR, 2, cv2.LINE_AA)
+        for start in range(0, 360, 18):
+            cv2.ellipse(img, center, (ring, ring), 0, start, start + 10, ZONE_BGR,
+                        2 if o.name == here else 1, cv2.LINE_AA)
+        label = f"{o.name} ({o.kind.lower()})"
+        (text_w, _h), _base = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
+        spot = (max(2, min(center[0] - text_w // 2, width - text_w - 2)),
+                max(30, center[1] - ring - 5))    # below the time in the corner
+        for color, thickness in (((0, 0, 0), 3), ((255, 255, 255), 1)):
+            cv2.putText(img, label, spot, cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, thickness,
+                        cv2.LINE_AA)
+
+
 def draw_tracking(frame: np.ndarray, pb: Playback, row: int, trail_frames: int = 0,
-                  show_regions: bool = True) -> np.ndarray:
-    """The frame with ROIs, a short trail and the position marker drawn on,
-    plus time and region in the corner (for the saved video)."""
+                  show_regions: bool = True, objects=None,
+                  zone_px: float = 0.0) -> np.ndarray:
+    """The frame with ROIs, any objects and their zones, a short trail and
+    the position marker drawn on, plus time and region (or the object zone
+    the point is in) in the corner (for the saved video)."""
     img = frame.copy()
+    here = object_at(pb.data, objects, zone_px, row) if objects else ""
+    if objects:
+        _draw_objects(img, objects, zone_px, here)
     if show_regions:
         for xs, ys in pb.regions().values():
             pts = np.column_stack([xs, ys]).round().astype(np.int32)
@@ -235,7 +263,8 @@ def draw_tracking(frame: np.ndarray, pb: Playback, row: int, trail_frames: int =
         cv2.circle(img, (int(round(pos[0])), int(round(pos[1]))), r, MARKER_BGR, -1,
                    cv2.LINE_AA)
     text = pb.time_text(row) + ("  unreadable" if pb.unreadable(row) else
-                                f"  {pb.region(row)}" if pb.region(row) else "")
+                                f"  {pb.region(row)}" if pb.region(row) else
+                                f"  {here} zone" if here else "")
     for color, width in (((0, 0, 0), 3), ((255, 255, 255), 1)):
         cv2.putText(img, text, (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, width,
                     cv2.LINE_AA)
@@ -248,10 +277,13 @@ def tracked_video_path(video: str) -> str:
 
 def write_tracked_video(pb: Playback, out_path: str | None = None, trail_frames: int = 0,
                         show_regions: bool = True, progress=None,
-                        should_cancel=None) -> str | None:
+                        should_cancel=None, objects=None,
+                        zone_px: float = 0.0) -> str | None:
     """Write the session with the tracking drawn on, at the video's real
     frame rate, as `<name>_tracked.mp4` beside the video (overwriting).
-    Returns the path, or None if cancelled (the partial file is removed)."""
+    `objects` (Object Recognition) are drawn with zones `zone_px` out from
+    their edges. Returns the path, or None if cancelled (the partial file is
+    removed)."""
     out_path = out_path or tracked_video_path(pb.video)
     cap = cv2.VideoCapture(pb.video)
     writer = None
@@ -276,7 +308,7 @@ def write_tracked_video(pb: Playback, out_path: str | None = None, trail_frames:
                     raise ValueError("The video file couldn't be created.")
             if not ok:
                 frame = np.zeros((size[1], size[0], 3), np.uint8)  # keep the timing
-            img = draw_tracking(frame, pb, row, trail_frames, show_regions)
+            img = draw_tracking(frame, pb, row, trail_frames, show_regions, objects, zone_px)
             writer.write(np.ascontiguousarray(img[:size[1], :size[0]]))
             if progress and row % 25 == 0:
                 progress(row, n)

@@ -16,6 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from core.loader import load_csv
 from core.objects import (Scoring, TrialObject, distance_px, file_objects, load_scoring,
+                          update_trial_info,
                           object_at, object_metrics, objects_from_text, objects_to_text,
                           save_scoring, scoring_path, trial_info, trial_summary, zone_visits)
 from core.regions import TEST_TYPES
@@ -115,6 +116,27 @@ try:
     check("nothing scored: zero times, DI from zero total is blank",
           t2["OR_Total_s"] == 0 and math.isnan(t2["OR_DiscriminationIndex"])
           and t2["OR_VisitsNotReviewed"] == 2)
+
+    # Editing the trial info after tracking changes only those columns.
+    before = pd.read_csv(path, dtype=str, keep_default_na=False)
+    update_trial_info(d, {"object 1": "Moved", "object 2": "Familiar", "nope": "Novel"}, " 5 ", "Training")
+    after = pd.read_csv(path, dtype=str, keep_default_na=False)
+    edited = ["Objects", "Trial_Day", "Trial_Phase"]
+    check("editing trial info changes only those columns, exactly",
+          after.drop(columns=edited).equals(before.drop(columns=edited))
+          and list(after.columns) == list(before.columns))
+    again = load_csv(path)
+    check("edited types, day and phase are saved and show in memory too",
+          [o.kind for o in file_objects(again)] == ["Moved", "Familiar"]
+          and trial_info(again) == ("5", "Training") and trial_info(d) == ("5", "Training")
+          and [o.kind for o in file_objects(d)] == ["Moved", "Familiar"]
+          and [(o.x, o.y, o.r) for o in file_objects(again)] == [(20, 50, 5), (80, 50, 5)]
+          and not os.path.exists(path + ".tmp"))
+    check("edited types drive the results (moved counts as novel)",
+          object_metrics(again, s, 1.0, zpx)["OR_Novel_s"] == 5)
+    update_trial_info(d, {}, "", "Not a phase")
+    check("a blank day and an unknown phase are written as blank",
+          trial_info(load_csv(path)) == ("", ""))
 
     # Training: every object familiar, so DI and % preference are blank.
     df["Objects"] = objects_to_text([TrialObject("object 1", 20, 50, 5),

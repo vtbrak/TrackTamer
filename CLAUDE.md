@@ -140,7 +140,9 @@ C0–C9 (with C5b) done: **Location Tracking is complete**. Next steps come from
 `video-tracking`, O1–O4): test type "Object Recognition"; setup step 5
 "Objects" (circles, Familiar/Novel/Moved, day, phase); Zone distance box
 (never locks); Review tab lists zone visits; scoring in the playback window
-(`<name>_ObjectScoring.csv`); results `OR_*` (`core/objects.py`). Tested on
+(`<name>_ObjectScoring.csv`); results `OR_*` (`core/objects.py`). Object
+types, day and phase can be edited after tracking (Review tab, `update_trial_info`
+rewrites only those columns of the tracking file). Tested on
 the user's object trial `Examples/1_2026-06-26_14-03-15.mp4`
 (`tests/test_objects_video.py`).
 **Anaconda install (ROADMAP §14) is built** (2026-11-03, on `main`, merged

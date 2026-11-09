@@ -1438,9 +1438,17 @@ experimenter deciding which are real, so zone visits **no longer drop
 brief stays** (the entry rule had dropped stays under 5 frames); only exits
 shorter than Min entry frames join two stretches into one visit. On the
 trial: 67 visits at 4 cm (37 at object 1, 30 at object 2).
-**Possible follow-ups (not built):** edit object types / day / phase after
-tracking; draw the objects on the Scale step; objects on the saved
-`_tracked.mp4`.
+**Built 2026-11-09:** **Edit trial info…** (Review tab, Object Recognition)
+changes each object's type, the trial day and the phase after tracking.
+Saved in the tracking file (`update_trial_info`: only the `Objects`,
+`Trial_Day` and `Trial_Phase` columns change, every other value is written
+back as read, via a temporary file so a failed save, e.g. the file open in
+Excel, changes nothing). The video's setup follows, so tracking again keeps
+the edit; results update at once; already-exported files need exporting
+again. **Save as video…** draws the objects, dashed zones (heavier while the
+point is in one) and labels on `_tracked.mp4`, following the Objects
+checkbox and the current zone distance.
+**Possible follow-up (not built):** draw the objects on the Scale step.
 
 ### 16. Experiment information from the capture software (requested 2026-11-05; after 1.0)
 The user is writing capture software that records the videos. It will write
@@ -1579,9 +1587,9 @@ Done:
 
 **Priority order for what's next (user, 2026-11-09).** Nothing here starts
 until the user asks; when they ask what's next, work from the top:
-1. **Edit object type, trial day and phase after tracking** (today that means
-   re-tracking; §15 follow-ups).
-2. **Show the objects on the saved `_tracked.mp4`** (§15 follow-ups).
+1. ✅ **Edit object type, trial day and phase after tracking** (built
+   2026-11-09; §15).
+2. ✅ **Show the objects on the saved `_tracked.mp4`** (built 2026-11-09; §15).
 3. **Load a video together with an existing tracking file** (entry below).
 4. **Acoustic startle (ASR)** (§13). First remind the user to put a sample ASR
    video and its stimulus logs in the project folder.

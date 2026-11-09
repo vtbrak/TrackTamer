@@ -90,6 +90,33 @@ def trial_info(data: TrackingData) -> tuple[str, str]:
     return plain(data.settings.get("Trial_Day")), plain(data.settings.get("Trial_Phase"))
 
 
+def update_trial_info(data: TrackingData, kinds: dict[str, str], day: str, phase: str) -> None:
+    """Change each object's type, the trial day and the phase after tracking
+    (ROADMAP §15). They're saved in the tracking file, where tracking first
+    wrote them. Only those columns change: every other value is written back
+    exactly as it was read, and a failed save leaves the file as it was
+    (OSError if it can't be saved, e.g. the file is open in Excel)."""
+    objects = file_objects(data)
+    for o in objects:
+        if kinds.get(o.name) in KINDS:
+            o.kind = kinds[o.name]
+    values = {"Objects": objects_to_text(objects), "Trial_Day": str(day).strip(),
+              "Trial_Phase": phase if phase in PHASES else ""}
+    table = pd.read_csv(data.path, dtype=str, keep_default_na=False)
+    for column, value in values.items():
+        table[column] = value
+    temporary = data.path + ".tmp"
+    try:
+        table.to_csv(temporary, index=False)
+        os.replace(temporary, data.path)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+    data.settings.update(values)
+    for column, value in values.items():
+        data.df[column] = value
+
+
 def has_objects(data: TrackingData) -> bool:
     return bool(file_objects(data))
 
