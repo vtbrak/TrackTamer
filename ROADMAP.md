@@ -1587,9 +1587,11 @@ until the user asks; when they ask what's next, work from the top:
    video and its stimulus logs in the project folder.
 5. **Conditioned place preference** (only its assay name is reserved so far,
    `docs/metadata_standard.md`; needs its specs decided).
+6. **Head and tail tracking** (requested 2026-11-09; not specified yet).
+7. **Freezing analysis** (§12): lowest on the list.
 
-Not ranked: freezing analysis (§12), reading the capture apps' info files
-(§16, after 1.0), and the standalone app (on hold).
+Not ranked: reading the capture apps' info files (§16, after 1.0) and the
+standalone app (on hold).
 
 **Everything planned so far is built** (as of 2026-10-30). Still open:
 - ✅ **Anaconda install (§14)**: built 2026-11-03 on `main`, merged into
