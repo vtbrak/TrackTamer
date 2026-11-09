@@ -25,8 +25,10 @@ from PIL import Image, ImageDraw, ImageTk
 from core.plotting import _label_points
 from core.tracking import METHODS, TrackingParams, locate
 from core.video import VideoReader
+from core.asr import analyzed_pixels, changed_pixels, find_info, parse_frames, stimuli_from_info
 from core.objects import KINDS, PHASES
-from core.video_setup import OBJECT_TEST, OUTLINE, REGION_TEMPLATES, STEPS, effective_dsmpl
+from core.video_setup import (ASR_TEST, OBJECT_TEST, OUTLINE, REGION_TEMPLATES, effective_dsmpl,
+                              steps_for)
 from dialogs import ask_yes_no, show_info, show_warning
 from tooltip import Tooltip
 
@@ -37,7 +39,10 @@ STEP_TITLES = {
     "tracking": "4  Tracking check",
     "regions": "5  Regions",
     "scale": "6  Scale",
+    "threshold": "3  Threshold",
+    "stimuli": "4  Stimuli",
 }
+ASR_HIGHLIGHT = (40, 40, 255)   # above-threshold pixels in the preview (red, as BGR)
 DOWNSAMPLE_CHOICES = ("1", "0.75", "0.5", "0.25")
 # Session length choices in minutes, per test (C5b item 2); others can be typed.
 LENGTH_CHOICES = {
@@ -367,15 +372,12 @@ class SetupWindow(tk.Toplevel):
         body.pack(fill=tk.BOTH, expand=True)
         steps = ttk.Frame(body, padding=(10, 4))
         steps.pack(side=tk.LEFT, fill=tk.Y)
+        self.steps_frame = steps
         self.step_buttons = {}
-        for key in STEPS:
-            b = ttk.Button(steps, text=self._title(key), width=20,
-                           command=lambda k=key: self._go(k))
-            b.pack(fill=tk.X, pady=2)
-            self.step_buttons[key] = b
         self.info_label = ttk.Label(steps, foreground="gray", wraplength=170,
                                     justify=tk.LEFT)
         self.info_label.pack(fill=tk.X, pady=(16, 0))
+        self._build_step_buttons()
 
         right = ttk.Frame(body, padding=(4, 4, 10, 10))
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -406,6 +408,20 @@ class SetupWindow(tk.Toplevel):
         Tooltip(self.done_btn, "Close the setup window. Everything set so far is kept.")
         self.next_step_btn = ttk.Button(nav, command=lambda: self._step_by(1))
         self.next_step_btn.pack(side=tk.RIGHT, padx=(0, 6))
+
+    def _steps(self) -> tuple:
+        return steps_for(self._test())
+
+    def _build_step_buttons(self) -> None:
+        """One button per step of the current test's setup."""
+        for button in self.step_buttons.values():
+            button.destroy()
+        self.step_buttons = {}
+        for key in self._steps():
+            b = ttk.Button(self.steps_frame, text=self._title(key), width=20,
+                           command=lambda k=key: self._go(k))
+            b.pack(fill=tk.X, pady=2, before=self.info_label)
+            self.step_buttons[key] = b
 
     def _update_zoom_text(self) -> None:
         z = self.canvas.zoom
@@ -463,6 +479,10 @@ class SetupWindow(tk.Toplevel):
         if trace:
             self.app.zone_var.trace_remove("write", trace)
             self._zone_trace = None
+        trace = getattr(self, "_asr_trace", None)
+        if trace:
+            self.app.asr_threshold_var.trace_remove("write", trace)
+            self._asr_trace = None
 
     def _mark(self, step: str) -> None:
         self.setup.steps_done.add(step)
@@ -496,6 +516,8 @@ class SetupWindow(tk.Toplevel):
     # ------------------------------------------------------------ navigation
     def _show_video(self) -> None:
         s = self.setup
+        if self._test() == ASR_TEST and s.info.fps and "trim" not in s.steps_done:
+            s.length_s = s.info.frame_count / s.info.fps    # the whole video by default
         if s.length_s is None:
             s.length_s = self._default_minutes() * 60
         self.video_label.configure(text=self.entry.label)
@@ -523,17 +545,23 @@ class SetupWindow(tk.Toplevel):
         self.app._refresh()
 
     def _go(self, step: str) -> None:
+        steps = self._steps()
+        if tuple(self.step_buttons) != steps:
+            self._build_step_buttons()   # the test changed
+        if step not in steps:
+            step = "trim"
         self._points = []
         self.step = step
         self._clear_controls()
         {"trim": self._step_trim, "exclusions": self._step_exclusions,
          "reference": self._step_reference, "tracking": self._step_tracking,
          "regions": (self._step_objects if self._objects_test() else self._step_regions),
-         "scale": self._step_scale}[step]()
-        k = STEPS.index(step)
+         "scale": self._step_scale, "threshold": self._step_threshold,
+         "stimuli": self._step_stimuli}[step]()
+        k = steps.index(step)
         self.back_btn.configure(state="normal" if k > 0 else "disabled")
-        if k < len(STEPS) - 1:
-            nxt = self._title(STEPS[k + 1]).split("  ", 1)[1]
+        if k < len(steps) - 1:
+            nxt = self._title(steps[k + 1]).split("  ", 1)[1]
             self.next_step_btn.configure(text=f"Next: {nxt.lower()}")
         elif self.index < len(self.entries) - 1:
             self.next_step_btn.configure(text="Next video")
@@ -544,14 +572,15 @@ class SetupWindow(tk.Toplevel):
     def _step_by(self, delta: int) -> None:
         """Back always works. Next checks the current step first: it either
         moves on or says what's missing (never a dead end)."""
-        k = STEPS.index(self.step)
+        steps = self._steps()
+        k = steps.index(self.step)
         if delta < 0:
-            self._go(STEPS[max(0, k - 1)])
+            self._go(steps[max(0, k - 1)])
             return
         if not self._finish_step():
             return
-        if k < len(STEPS) - 1:
-            self._go(STEPS[k + 1])
+        if k < len(steps) - 1:
+            self._go(steps[k + 1])
         elif self.index < len(self.entries) - 1:
             self._move(1, step="trim")
         else:
@@ -585,6 +614,25 @@ class SetupWindow(tk.Toplevel):
                 return False
             if self._read_params(save=True) is None:
                 return False
+        elif step == "threshold":
+            if self._threshold_value() is None:
+                show_info(self, "Invalid threshold",
+                          "The intensity threshold must be a number from 0 to 255.")
+                return False
+        elif step == "stimuli":
+            if self.stimuli_text is not None:
+                try:
+                    s.stimulus_frames = parse_frames(self.stimuli_text.get("1.0", tk.END))
+                except ValueError as exc:
+                    show_info(self, "Invalid stimulus frames", f"The stimulus frames couldn't "
+                              f"be read.\n\n{exc} Use whole frame numbers separated by "
+                              "commas, spaces or new lines.")
+                    return False
+                if not s.stimulus_frames and not ask_yes_no(
+                        self, "No stimuli listed",
+                        "No stimuli are listed for this video. The motion index can still "
+                        "be worked out, but there will be no trials. Go on anyway?"):
+                    return False
         elif step == "regions" and self._objects_test():
             missing = s.missing_regions(self._test())
             if missing and not ask_yes_no(
@@ -1323,6 +1371,111 @@ class SetupWindow(tk.Toplevel):
     def _redraw_regions(self) -> None:
         self.canvas.delete("overlay")
         self._draw_regions()
+
+    # ------------------------------------------- startle steps (ROADMAP §13)
+    def _threshold_value(self) -> float | None:
+        try:
+            value = float(self.app.asr_threshold_var.get())
+        except ValueError:
+            return None
+        return value if 0 <= value <= 255 else None
+
+    def _step_threshold(self) -> None:
+        s = self.setup
+        self.instructions.configure(text=(
+            "Set the intensity threshold: a pixel counts as movement when its brightness "
+            "changes by more than this between two frames. Red shows the pixels counted, "
+            "between the frame shown and the one before it. Scrub to a moment when the "
+            "animal is still: little or no red should show on the animal or the chamber. "
+            "Then check a moment of movement. The threshold is shared by every video and "
+            "locks at the first Track."))
+        lo = s.start + 1
+        self._make_scrub(self.controls, lo, max(lo, s.end_frame - 1), lo,
+                         self._load_threshold_frame)
+        row = ttk.Frame(self.controls)
+        row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(row, text="Intensity threshold (0-255):").pack(side=tk.LEFT)
+        state = "disabled" if self._locked() else "normal"
+        self.threshold_scale = ttk.Scale(row, from_=0, to=255, orient=tk.HORIZONTAL,
+                                         command=self._threshold_slid)
+        self.threshold_scale.set(self._threshold_value() or 0)
+        self.threshold_scale.state([state] if state == "disabled" else ["!disabled"])
+        self.threshold_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
+        ttk.Entry(row, textvariable=self.app.asr_threshold_var, width=5,
+                  state=state).pack(side=tk.LEFT)
+        self.threshold_text = ttk.Label(self.controls, anchor=tk.W)
+        self.threshold_text.pack(fill=tk.X, pady=(6, 0))
+        self._asr_trace = self.app.asr_threshold_var.trace_add(
+            "write", lambda *_: self._threshold_typed())
+        self._load_threshold_frame()
+
+    def _threshold_slid(self, value) -> None:
+        if not self._locked() and self._threshold_value() != round(float(value)):
+            self.app.asr_threshold_var.set(f"{round(float(value))}")
+
+    def _threshold_typed(self) -> None:
+        value = self._threshold_value()
+        if value is not None and self.step == "threshold" and self.winfo_exists():
+            if round(float(self.threshold_scale.get())) != round(value):
+                self.threshold_scale.set(value)
+            self._draw_threshold()
+
+    def _load_threshold_frame(self) -> None:
+        s, frame = self.setup, self._current_frame()
+        with VideoReader(s.path, s.prep(1.0)) as reader:
+            self._asr_pair = (reader.read_at(frame - 1), reader.read_at(frame))
+        self._asr_mask = s.exclusion_mask(1.0)
+        self._draw_threshold()
+
+    def _draw_threshold(self) -> None:
+        previous, current = self._asr_pair
+        if previous is None or current is None:
+            self.canvas.show(None, "These frames couldn't be read. Try another frame.")
+            self.threshold_text.configure(text="")
+            return
+        threshold = self._threshold_value()
+        if threshold is None:
+            return
+        above = changed_pixels(previous, current, threshold, self._asr_mask)
+        image = cv2.cvtColor(current, cv2.COLOR_GRAY2BGR)
+        image[above] = ASR_HIGHLIGHT
+        self.canvas.show(image)
+        total, count = analyzed_pixels(current, self._asr_mask), int(above.sum())
+        self.threshold_text.configure(
+            text=f"Motion index at this frame: {100 * count / total:.4f}% "
+                 f"({count:,} of {total:,} pixels)" if total else "")
+
+    def _step_stimuli(self) -> None:
+        s = self.setup
+        with VideoReader(s.path, s.prep(1.0)) as reader:
+            self.canvas.show(reader.read_at(s.start))
+        found = find_info(s.path)
+        stimuli = stimuli_from_info(found[0]) if found else []
+        self.stimuli_text = None
+        if stimuli:
+            kinds: dict[str, int] = {}
+            for item in stimuli:
+                kinds[item["type"]] = kinds.get(item["type"], 0) + 1
+            listed = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
+            self.instructions.configure(text=(
+                f"{len(stimuli)} stimuli were found in this video's info file ({listed}). "
+                "Their times and types are used automatically."))
+            return
+        self.instructions.configure(text=(
+            "This video has no info file listing its stimuli, so type them in: the video "
+            "frame of each stimulus, counting from 0, separated by commas, spaces or new "
+            "lines. Each is treated as a pulse."))
+        ttk.Label(self.controls, text="Stimulus frames:").pack(anchor="w")
+        self.stimuli_text = tk.Text(self.controls, height=3, width=70, wrap="word")
+        self.stimuli_text.insert("1.0", ", ".join(str(f) for f in s.stimulus_frames))
+        self.stimuli_text.pack(fill=tk.X)
+        self.stimuli_text.bind("<KeyRelease>", lambda _e: self._stimuli_typed())
+
+    def _stimuli_typed(self) -> None:
+        try:
+            self.setup.stimulus_frames = parse_frames(self.stimuli_text.get("1.0", tk.END))
+        except ValueError:
+            pass    # still typing; Next says what's wrong
 
     # ------------------------------------------------- step 5: objects (§15)
     def _step_objects(self) -> None:

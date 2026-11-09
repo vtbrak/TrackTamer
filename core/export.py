@@ -33,18 +33,18 @@ def output_paths(source_path: str) -> dict[str, str]:
 
 def write_analysis_workbook(
     xlsx_path: str, summary: dict, bins: pd.DataFrame | None, settings: pd.DataFrame,
-    interactions: pd.DataFrame | None = None,
+    interactions: pd.DataFrame | None = None, bins_sheet: str = "Time Bins",
 ) -> None:
     """One workbook, each table on its own sheet. Blank cells mean a value
     couldn't be computed (e.g. a latency to a region never entered)."""
     sheets = {
         "Summary": pd.DataFrame([summary]),
-        "Time Bins": bins if bins is not None else pd.DataFrame(),
+        bins_sheet: bins if bins is not None else pd.DataFrame(),
         "Settings": settings,
     }
     if interactions is not None:   # Object Recognition: the logged scoring
         sheets = {"Summary": sheets["Summary"], "Interactions": interactions,
-                  "Time Bins": sheets["Time Bins"], "Settings": settings}
+                  bins_sheet: sheets[bins_sheet], "Settings": settings}
     with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
         for name, df in sheets.items():
             df.to_excel(writer, sheet_name=name, index=False)

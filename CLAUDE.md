@@ -153,13 +153,11 @@ Tamer is the **master** for metadata: every app that records video for it
 per this standard, with `assay` from its fixed list. The user adds other
 apps' pieces over time (an "Apps" section per app). Reading it in Track Tamer
 is planned for after 1.0; don't build before 1.0.
-**Acoustic startle (ASR) from video** is planned in ROADMAP §13 (motion
-index with an adjustable 0–255 intensity threshold, default 15; PPI and
-habituation); not built. **When ASR work starts, first remind the user to put
-a sample ASR video and its stimulus logs in the project folder.** The user
-cites papers outside the app (no in-app citation for ASR). Freeze Analysis
-and ASR decisions are recorded only; **don't build them until the user says
-so.** Adapted ezTrack code (core/video.py, tracking.py, playback.py) keeps the
+**Acoustic startle (ROADMAP §13) is built** (2026-11-09, on `main`, not released;
+the target for 1.0): test type "Acoustic Startle Response", `core/asr.py`, setup steps
+Threshold and Stimuli, `<name>_MotionIndex.csv`. Waiting on real chamber videos to
+validate. The user cites papers outside the app (no in-app citation for ASR). Freeze Analysis
+decisions are recorded only; **don't build it until the user says so.** Adapted ezTrack code (core/video.py, tracking.py, playback.py) keeps the
 GPL-3.0 license and credits ezTrack at the top of each file; keep doing so.
 Video-side modules: `core/video_setup.py`, `core/track_run.py`,
 `setup_window.py`, `review_panel.py` (Review tab; see README Layout).

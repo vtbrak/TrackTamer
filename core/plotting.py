@@ -356,7 +356,8 @@ def motion_figure(data: TrackingData, trials) -> Figure:
     onsets = [] if trials is None or trials.empty else trials["Stimulus_s"].dropna().tolist()
     for t in onsets:
         ax.axvline(t, color="0.55", linewidth=0.8, linestyle="--", zorder=0)
-    ax.set_title(f"Motion index ({len(onsets)} stimuli marked) \u2014 {data.name}")
+    marked = f"{len(onsets)} stimul{'us' if len(onsets) == 1 else 'i'} marked"
+    ax.set_title(f"Motion index ({marked}) \u2014 {data.name}")
     ax.set_xlabel("Video time (s)")
     ax.set_ylabel("Motion index (% of pixels)")
     ax.spines[["top", "right"]].set_visible(False)

@@ -76,6 +76,8 @@ from core.video import (VIDEO_EXTENSIONS, UNREADABLE_WARN, check_readable, is_vi
                         video_info)
 from core.version import VERSION
 from core.video_setup import OBJECT_TEST, VideoSetup
+from core.asr import ASR_TEST, asr_summary, is_motion_file, load_motion, make_asr_job
+from core.plotting import aligned_figure, motion_figure
 from core.objects import (distance_px, load_scoring, object_metrics, scoring_table,
                           trial_summary)
 from core.metrics import _bin_ranges as bin_ranges
@@ -417,6 +419,34 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                                  "and the Review list and results follow.")
         self.zone_var.trace_add("write", lambda *_: self._on_zone_change())
 
+        # Acoustic startle (ROADMAP §13), shown only for that test.
+        self.asr_bar = ttk.LabelFrame(panel, text="Acoustic Startle", padding=6)
+        c = self.config_data
+        self.asr_threshold_var = tk.StringVar(value=f"{c['asr_threshold']:g}")
+        self.asr_threshold_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_threshold_var,
+                                             width=6)
+        self._setting_row(self.asr_bar, 0, "Intensity threshold (0-255)", self.asr_threshold_entry)
+        self.asr_startle_var = tk.StringVar(value=f"{c['asr_startle_ms']:g}")
+        self.asr_startle_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_startle_var, width=6)
+        self._setting_row(self.asr_bar, 1, "Startle window (ms)", self.asr_startle_entry)
+        self.asr_baseline_var = tk.StringVar(value=f"{c['asr_baseline_ms']:g}")
+        self.asr_baseline_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_baseline_var,
+                                            width=6)
+        self._setting_row(self.asr_bar, 2, "Baseline window (ms)", self.asr_baseline_entry)
+        self.asr_block_var = tk.StringVar(value=str(c["asr_block_trials"]))
+        self.asr_block_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_block_var, width=6)
+        self._setting_row(self.asr_bar, 3, "Habituation block (trials)", self.asr_block_entry)
+        Tooltip(self.asr_threshold_entry, "A pixel counts as movement when its brightness changes "
+                "by more than this between frames. See its effect in Set up videos…, step 3. "
+                "Locks at the first Track.")
+        Tooltip(self.asr_startle_entry, "How long after each stimulus to look for the startle. "
+                "Locks when you click Analyze.")
+        Tooltip(self.asr_baseline_entry, "How long before each stimulus to measure movement "
+                "(before the prepulse, on prepulse+pulse trials). Locks when you click Analyze.")
+        Tooltip(self.asr_block_entry, "Pulse-alone trials per block, for habituation (first "
+                "block vs last). Locks when you click Analyze.")
+        self.asr_threshold_var.trace_add("write", lambda *_: self._on_asr_threshold())
+
         # Tracking settings, shown when videos are listed. They're changed in
         # the setup window's Tracking check step, where their effect shows.
         self.tracking_section = ttk.LabelFrame(panel, text="Tracking", padding=6)
@@ -471,12 +501,13 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         sections = [
             (self.lock_note, self._locked()),
             (self.session_section, True),
-            (self.entries_section, True),
+            (self.entries_section, self.test_var.get() != ASR_TEST),
             (self.of_bar, self.test_var.get() == "Open Field"),
             (self.or_bar, self.test_var.get() == OBJECT_TEST),
-            (self.tracking_section, any(e.video is not None
-                                        for e in getattr(self, "files", []))),
-            (self.gaps_section, any(e.video is not None or (
+            (self.asr_bar, self.test_var.get() == ASR_TEST),
+            (self.tracking_section, self.test_var.get() != ASR_TEST and any(
+                e.video is not None for e in getattr(self, "files", []))),
+            (self.gaps_section, self.test_var.get() != ASR_TEST and any(e.video is not None or (
                 e.data is not None and "Frame_Unreadable" in e.data.df.columns)
                 for e in getattr(self, "files", []))),
         ]
@@ -561,7 +592,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
     def _build_path_controls(self, parent):
         """Path-tab controls, in a column beside the plot. Changes redraw it."""
         p = self.config_data["plot"]
-        col = self._plot_column(parent)
+        col = self.path_col = self._plot_column(parent)
 
         self._col_heading(col, 0, "Points")
         self.size_var = tk.StringVar(value=f"{p['point_size']:g}")
@@ -600,7 +631,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
     def _build_heatmap_controls(self, parent):
         """Heatmap-tab controls, in a column beside the plot. Changes redraw it."""
         p = self.config_data["plot"]
-        col = self._plot_column(parent)
+        col = self.heat_col = self._plot_column(parent)
 
         self._col_heading(col, 0, "Cells")
         self.hbins_var = tk.StringVar(value=str(p["heatmap_bins"]))
@@ -869,6 +900,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
     # The same builders draw the on-screen plots and the exported images, so
     # exports always match what's shown.
     def _path_fig(self, entry, p):
+        if self.test_var.get() == ASR_TEST:
+            return motion_figure(entry.data, entry.bins)
         return path_figure(
             entry.data,
             color_by_speed=p["color_by_speed"],
@@ -881,6 +914,9 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         )
 
     def _heat_fig(self, entry, p):
+        if self.test_var.get() == ASR_TEST:
+            c = self.config_data
+            return aligned_figure(entry.data, entry.bins, c["asr_startle_ms"], c["asr_baseline_ms"])
         return heatmap_figure(
             entry.data, bins=p["heatmap_bins"], cmap=p["heatmap_cmap"],
             background=p["heatmap_bg_color"] if p["heatmap_bg_mode"] == "color" else None,
@@ -925,6 +961,14 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
     def _save_settings(self, fps: float, bin_s: float) -> None:
         self.config_data["fps"] = fps
         self.config_data["bin_seconds"] = bin_s
+        self.config_data["asr_startle_ms"] = self._ms_setting(
+            self.asr_startle_var, "startle window", 200.0)
+        self.config_data["asr_baseline_ms"] = self._ms_setting(
+            self.asr_baseline_var, "baseline window", 200.0)
+        try:
+            self.config_data["asr_block_trials"] = max(1, int(float(self.asr_block_var.get())))
+        except ValueError:
+            self.asr_block_var.set(str(self.config_data["asr_block_trials"]))
         self.config_data["fill_gaps"] = bool(self.fill_var.get())
         try:
             self.config_data["fill_gaps_max_frames"] = max(1, int(float(self.fill_max_var.get())))
@@ -1110,7 +1154,10 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         if self.nb.select() != str(self.review):
             return
         entry = self._selected_entry()
-        if entry is None:
+        if self.test_var.get() == ASR_TEST:
+            self.review.show_message("The Review tab isn't used for Acoustic Startle. Each "
+                                     "trial is listed in the Trials tab.")
+        elif entry is None:
             self.review.show_message("Select a tracked file in the file list to review "
                                      "its video.")
         elif entry.data is None:
@@ -1188,7 +1235,9 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             self._clear_tab(self.path_area, note)
             self._clear_tab(self.heat_area, note)
             return
-        self.bins_note.set(f"{entry.label}: {self._bin_seconds_locked():g} s bins")
+        self.bins_note.set(
+            f"{entry.label}: {len(entry.bins)} trial(s)" if self.test_var.get() == ASR_TEST
+            else f"{entry.label}: {self._bin_seconds_locked():g} s bins")
         self._fill_tree(self.bins_tree, entry.bins)
         self._redraw_plots()
 
@@ -1205,8 +1254,11 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self.test_box.configure(state="disabled" if locked else "readonly")
         for entry in (self.fps_entry, self.bin_entry, self.entry_entry,
                       self.gap_entry, self.adj_entry, self.smooth_entry,
-                      self.fill_check, self.fill_max_entry):
+                      self.fill_check, self.fill_max_entry, self.asr_startle_entry,
+                      self.asr_baseline_entry, self.asr_block_entry):
             entry.configure(state="disabled" if locked else "normal")
+        self.asr_threshold_entry.configure(
+            state="disabled" if self._tracking_locked() else "normal")
         self._layout_sections()  # shows or hides "Locked. Clear to change."
 
     def _fps_locked(self) -> float:
@@ -1359,8 +1411,20 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self._update_status()
 
     def _show_test_settings(self) -> None:
-        """Show the Open Field section only when Open Field is chosen."""
+        """Show the settings and tabs that apply to the chosen test."""
         self._layout_sections()
+        asr = self.test_var.get() == ASR_TEST
+        self.nb.tab(self.tab_bins, text="Trials" if asr else "Time Bins")
+        self.nb.tab(self.tab_path, text="Motion Trace" if asr else "Path")
+        self.nb.tab(self.tab_heat, text="Aligned Trials" if asr else "Heatmap")
+        for col, area in ((self.path_col, self.path_area), (self.heat_col, self.heat_area)):
+            if asr:
+                col.pack_forget()
+            elif not col.winfo_manager():
+                col.pack(side=tk.RIGHT, fill=tk.Y, before=area)
+        for row in (1, 2):      # frame rate and bin size don't apply to startle
+            for widget in self.session_section.grid_slaves(row=row):
+                widget.grid_remove() if asr else widget.grid()
 
     # --------------------------------------------------------------- status
     def _update_status(self) -> None:
@@ -1369,6 +1433,12 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                             "bin size, then click Analyze.")
             return
         done = sum(e.analyzed for e in self.files)
+        if self.test_var.get() == ASR_TEST:
+            self.status.set(
+                f"{len(self.files)} file(s), {done} analyzed — {ASR_TEST} — threshold "
+                f"{self.asr_threshold_var.get()}, startle window {self.asr_startle_var.get()} "
+                f"ms, baseline window {self.asr_baseline_var.get()} ms")
+            return
         roles = self._current_roles()
         problems = check_roles(self.test_var.get(), roles)
         regions = f"⚠ {'; '.join(problems)}" if problems else describe_roles(roles)
@@ -1400,6 +1470,31 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         except ValueError:
             pass
         return float(self.config_data["object_zone_cm"])
+
+    def _on_asr_threshold(self) -> None:
+        """Save a valid intensity threshold."""
+        try:
+            value = float(self.asr_threshold_var.get())
+        except ValueError:
+            return
+        if 0 <= value <= 255 and value != self.config_data["asr_threshold"]:
+            self.config_data["asr_threshold"] = value
+            save_config(self.config_data)
+        self._update_status()
+
+    def _ms_setting(self, var, name: str, default: float) -> float:
+        """A window length in ms (above 0), resetting to `default` if invalid."""
+        try:
+            value = float(var.get())
+            if value <= 0:
+                raise ValueError
+            return value
+        except ValueError:
+            show_warning(self, f"Invalid {name}",
+                         f"The {name} must be a number of milliseconds above 0. "
+                         f"Using {default:g} ms instead.")
+            var.set(f"{default:g}")
+            return default
 
     def _on_zone_change(self) -> None:
         """Save a valid zone distance and update what depends on it."""
@@ -1462,7 +1557,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         if entry.track_state == "failed":
             return FAILED, "failed"
         if entry.data is None:  # a video, not tracked yet
-            if entry.video is not None and entry.video.ready:
+            if entry.video is not None and entry.video.ready_for(self.test_var.get()):
                 return READY_TO_TRACK, "waiting"
             return NEEDS_SETUP, "waiting"
         return NOT_ANALYZED, ""
@@ -1542,7 +1637,12 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
     # CSVs that sit beside videos but aren't tracking files: Track Tamer's own
     # object scoring, and Creature Capture's per-camera frame times and trial
     # info (ROADMAP §16). Adding a folder skips them.
-    COMPANION_CSV_SUFFIXES = ("_objectscoring.csv", "_frames.csv", "_info.csv")
+    COMPANION_CSV_SUFFIXES = ("_objectscoring.csv", "_frames.csv", "_info.csv", "_trials.csv")
+
+    @staticmethod
+    def _load_output(path: str):
+        """A tracking file, or a startle motion index file."""
+        return load_motion(path) if is_motion_file(path) else load_csv(path)
 
     @classmethod
     def _files_in(cls, folder: str) -> list[str]:
@@ -1588,13 +1688,15 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                     setup = VideoSetup(path=p, info=video_info(p))
                     setup.length_s = 60 * default_session_minutes(self.config_data,
                                                                   self.test_var.get())
+                    if self.test_var.get() == ASR_TEST and setup.info.fps:
+                        setup.length_s = setup.info.frame_count / setup.info.fps
                     setup.unreadable = check_readable(p)
                     bad, checked = setup.unreadable
                     if checked and bad / checked > UNREADABLE_WARN:
                         hard_to_read.append((p, bad, checked))
                     data, name = None, os.path.basename(p)
                 else:
-                    setup, data = None, load_csv(p)
+                    setup, data = None, self._load_output(p)
                     name = data.name
             except Exception as exc:  # report bad files, keep the good ones
                 errors.append(f"{os.path.basename(p)}: {exc}")
@@ -1691,11 +1793,13 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             groups.setdefault(self._same_file_key(e.path), []).append(e)
         todo = list(groups.values())
 
-        existing = [g for g in todo if existing_output(g[0].path)]
+        test = self.test_var.get()
+        existing = [g for g in todo if existing_output(g[0].path, test)]
         if existing:
+            ending = "_MotionIndex.csv" if test == ASR_TEST else "_LocationOutput.csv"
             use = ask_yes_no(
                 self, "Some videos are already tracked",
-                "Some videos already have a tracking file (_LocationOutput.csv) "
+                f"Some videos already have a tracking file ({ending}) "
                 f"beside them.\n\n{self._names([g[0] for g in existing])}\n\n"
                 "Use that tracking, or track them again (replacing it)?",
                 yes="Use Existing Tracking", no="Track Again",
@@ -1704,7 +1808,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 errors = []
                 for g in existing:
                     try:
-                        data = load_csv(existing_output(g[0].path))
+                        data = self._load_output(existing_output(g[0].path, test))
                     except Exception as exc:
                         errors.append(f"• {g[0].label}: {exc}")
                         continue
@@ -1719,21 +1823,20 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                     todo = [g for g in todo if g not in existing]
                 self._refresh()
 
-        not_ready = [g for g in todo if not g[0].video.ready]
-        ready = [g for g in todo if g[0].video.ready]
+        not_ready = [g for g in todo if not g[0].video.ready_for(test)]
+        ready = [g for g in todo if g[0].video.ready_for(test)]
         if not_ready:
             show_info(self, "Some videos aren't set up yet",
                       "Some videos aren't set up yet, so they weren't tracked.\n\n"
                       f"{self._names([g[0] for g in not_ready])}\n\n"
-                      "Finish all six steps in Set up videos… for them, then click "
+                      "Finish all the steps in Set up videos… for them, then click "
                       "Track again.")
         if not ready:
             return
 
-        test = self.test_var.get()
         dsmpl = float(self.config_data["video_downsample"])
         gaps = []
-        for g in ready:
+        for g in ready if test != ASR_TEST else []:
             v = g[0].video
             parts = []
             missing = v.missing_regions(test)
@@ -1761,8 +1864,11 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                                 window_size=int(c["window_size"]),
                                 window_weight=float(c["window_weight"]))
         try:
-            jobs = [make_job(g[0].video, params, dsmpl, int(c["reference_frames"]), test)
-                    for g in ready]
+            if test == ASR_TEST:
+                jobs = [make_asr_job(g[0].video, float(c["asr_threshold"])) for g in ready]
+            else:
+                jobs = [make_job(g[0].video, params, dsmpl, int(c["reference_frames"]), test)
+                        for g in ready]
         except Exception as exc:
             traceback.print_exc()
             show_error(self, "Tracking couldn't start", f"Tracking couldn't start.\n\n{exc}")
@@ -1788,6 +1894,14 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
     def _check_frame_rates(self, entries) -> bool:
         """Fill the frame-rate setting from the videos, or warn when they
         disagree with it or with each other. False if the user cancels."""
+        if self.test_var.get() == ASR_TEST:
+            other = [e for e in entries if abs((e.video.info.fps or 0) - 30) > 1]
+            return not other or ask_yes_no(
+                self, "Some videos aren't 30 fps",
+                f"Some videos aren't 30 fps.\n\n{self._names(other)}\n\nThe motion index "
+                "method and its threshold of 15 were set at 30 fps, so results at other "
+                "frame rates may not compare. Track anyway?",
+                yes="Track Anyway", no="Cancel")
         tracked = [e for e in self.files if e.video is not None and e.data is not None]
         rates = {}
         for e in entries + tracked:
@@ -1836,6 +1950,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         """Before the first Analyze: tracking files from this app record their
         video's frame rate. Offer it if the Frame rate box differs (times
         would be wrong otherwise). False if the user cancels."""
+        if self.test_var.get() == ASR_TEST:
+            return True      # startle uses each file's own frame times
         rates = {}
         for e in entries:
             try:
@@ -1964,10 +2080,11 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                       + (f"; {left} weren't tracked." if left else ".")
                       + " Select them and click Track to track them.")
         elif done:
+            made = ("_MotionIndex.csv" if self.test_var.get() == ASR_TEST
+                    else "_LocationOutput.csv and a _reference.png")
             show_info(self, "Tracking finished",
-                      f"Tracking finished for {done} video(s). Each has a "
-                      "_LocationOutput.csv and a _reference.png next to it. Select "
-                      "them and click Analyze.")
+                      f"Tracking finished for {done} video(s). Each has a {made} next to "
+                      "it. Select them and click Analyze.")
 
     def analyze(self) -> None:
         """Analyze the selected files."""
@@ -1988,6 +2105,18 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                       f"yet.\n\n{names}\n\nSet them up and track them first.")
         if not targets:
             return
+        # A startle file can't be analyzed as another test, or the reverse.
+        startle = self.test_var.get() == ASR_TEST
+        wrong = [e for e in targets if is_motion_file(e.data.path) != startle]
+        if wrong:
+            kind = "startle motion index files" if not startle else "tracking files"
+            show_warning(self, "Some files don't fit this test",
+                         f"Some files are {kind}, so they weren't analyzed as "
+                         f"{self.test_var.get()}.\n\n{self._names(wrong)}\n\nChoose the "
+                         "matching test, or track the video for this test.")
+            targets = [e for e in targets if e not in wrong]
+            if not targets:
+                return
 
         if not self._locked():
             if not self._check_file_frame_rates(targets):
@@ -2016,6 +2145,12 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         (locked) settings."""
         fps, bin_s = self._fps_locked(), self._bin_seconds_locked()
         test = self.test_var.get()
+        if test == ASR_TEST:
+            c = self.config_data
+            summary, e.bins = asr_summary(e.data, float(c["asr_startle_ms"]),
+                                          float(c["asr_baseline_ms"]), int(c["asr_block_trials"]))
+            e.summary = order_summary(summary, test)
+            return
         min_entry = self.config_data["min_entry_frames"]
         fill = bool(self.config_data["fill_gaps"])
         fill_max = int(self.config_data["fill_gaps_max_frames"])
@@ -2094,6 +2229,22 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         """Everything that produced this file's numbers and images."""
         row = entry.summary
         test = row.get("Test", self.test_var.get())
+        if test == ASR_TEST:
+            return settings_table({
+                "Source": {"Source file": entry.path, "Video (File column)": entry.data.name,
+                           "Motion index file": entry.data.path,
+                           "Exported": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                           "Track Tamer version": VERSION},
+                "Analysis": {"Test": test,
+                             "Intensity threshold": row.get("IntensityThreshold"),
+                             "Startle window (ms)": row.get("StartleWindow_ms"),
+                             "Baseline window (ms)": row.get("BaselineWindow_ms"),
+                             "Habituation block (trials)": row.get("HabituationBlock_trials"),
+                             "Stimuli from": row.get("StimulusSource"),
+                             "Pixels analyzed": row.get("AnalyzedPixels"),
+                             "Frames": row.get("Frames"),
+                             "Unreadable frames": row.get("UnreadableFrames")},
+            })
         analysis = {
             "Test": test,
             "Frame rate (fps)": row.get("FPS"),
@@ -2228,10 +2379,18 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         try:
             for e in unique:
                 out = output_paths(e.path)
+                startle = self.test_var.get() == ASR_TEST
+                if startle:
+                    base = os.path.splitext(e.path)[0]
+                    if base.endswith("_MotionIndex"):
+                        base = base[: -len("_MotionIndex")]
+                    out = {"analysis": base + "_analysis.xlsx", "path": base + "_trace.png",
+                           "heatmap": base + "_aligned.png"}
                 try:
                     write_analysis_workbook(
                         out["analysis"], {k: v for k, v in e.summary.items()},
                         e.bins, self._settings_sheet(e, plot),
+                        bins_sheet="Trials" if startle else "Time Bins",
                         interactions=(scoring_table(e.data, load_scoring(e.data),
                                                     self._fps_locked())
                                       if self.test_var.get() == OBJECT_TEST else None),
@@ -2269,9 +2428,12 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             show_info(
                 self, "Export finished",
                 f"Exported {len(written)} file(s) next to their CSVs.\n\n"
-                "Each has an _analysis.xlsx workbook (Summary, Time Bins, and "
-                f"Settings sheets) plus _path.png and _heatmap.png images.\n\n"
-                f"{names}{note}",
+                + ("Each has an _analysis.xlsx workbook (Summary, Trials, and Settings "
+                   "sheets) plus _trace.png and _aligned.png images.\n\n"
+                   if self.test_var.get() == ASR_TEST else
+                   "Each has an _analysis.xlsx workbook (Summary, Time Bins, and "
+                   "Settings sheets) plus _path.png and _heatmap.png images.\n\n")
+                + f"{names}{note}",
             )
 
 

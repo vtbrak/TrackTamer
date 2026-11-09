@@ -101,6 +101,15 @@ not just crashes.
 7. Close the program and open it again: your scoring should still be there
    (it's saved in `<video name>_ObjectScoring.csv`).
 
+### D. Acoustic Startle Response
+1. Choose **Acoustic Startle Response** as the Test and add a video.
+2. In **Set up videos…**, step 3 (**Threshold**), scrub to a still moment and a
+   moment of movement. Red shows the pixels counted as movement.
+3. Step 4 (**Stimuli**) uses the recording's info file if it has one.
+   Otherwise type the video frame of each stimulus.
+4. Click **Track**, then **Analyze**, and look at **Trials**, **Motion Trace**
+   and **Aligned Trials**. Then click **Export**.
+
 ---
 
 ## 3. Reporting problems

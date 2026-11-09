@@ -1191,7 +1191,7 @@ test) before each commit.
   **Location Tracking is complete**; next steps come from the user (PC test,
   merging `video-tracking` into `main`, Freeze Analysis, ASR).
 
-### 13. Acoustic startle response (ASR) from video (requested 2026-11-03 — planned, not built)
+### 13. Acoustic startle response (ASR) from video (requested 2026-11-03 — built 2026-11-09; see the end of this section)
 
 Measure the startle response from video with a **motion index**, following a
 method described in a paper the user supplied. **The user cites papers
@@ -1299,6 +1299,33 @@ CSVs) before building.
   and the default response/baseline window lengths.
 - PPI and habituation details that depend on the log format (prepulse
   levels, block structure).
+
+**Built 2026-11-09** (`core/asr.py`, setup steps Threshold and Stimuli, tabs
+Trials / Motion Trace / Aligned Trials; tests `test_asr.py`, `test_asr_gui.py`).
+**Decided with the user, from their document and Boom Box 1.1's
+`TRACK_TAMER_DATA.md`:**
+- **Startle amplitude = peak motion index in the startle window (200 ms after
+  the stimulus) - peak in the baseline window (200 ms before).** On
+  prepulse+pulse trials the baseline ends at the prepulse onset.
+- Motion index at frame k belongs to frame k's time, so the startle window
+  is the frames after the stimulus. Windows run on measured times
+  (`_frames.csv`, stimulus `video_time_s`). Repeated frames can't be a peak.
+- Output headings from the document: Pixel.change, motion.index.after, FrameNo,
+  Time.startle, ReactionTime (ms, stimulus to peak), Startle amplitude; plus
+  motion.index.before. **Direction left out** until its meaning is known.
+- PPI and habituation use the startle amplitude. Means per trial type and
+  per pulse frequency; `pulse_freq_hz` and `pulse_stimulus` added to the
+  standard, read from `boom_box.trials` until Boom Box writes them in `stimuli`.
+- Stimuli from the info file, or typed video frames (treated as pulses).
+- The threshold locks at the first Track; the windows and block size lock at
+  Analyze. Always full size (no downsampling). The whole video by default.
+**Checked:** the five paper clips (101 frames, 30 fps; stimulus frame 50
+assumed, since they carry no stimulus information): the peak falls 1-2 frames
+after it in every clip. The paper's own values aren't available to compare.
+**Not built yet:** flag for animals already moving at baseline; histogram and
+noise check in the threshold step; Review/playback for trials; editing stimuli
+without re-running; Direction. **Waiting on:** real chamber videos (validation,
+window and threshold choices).
 
 ### 14. Anaconda install (requested 2026-11-03 — ✅ built 2026-11-03 on `main`, merged into `video-tracking`)
 
@@ -1590,9 +1617,9 @@ until the user asks; when they ask what's next, work from the top:
 1. ✅ **Edit object type, trial day and phase after tracking** (built
    2026-11-09; §15).
 2. ✅ **Show the objects on the saved `_tracked.mp4`** (built 2026-11-09; §15).
-3. **Acoustic startle (ASR)** (§13): **next, and the target for the 1.0
-   release** (user, 2026-11-09). First remind the user to put a sample ASR
-   video and its stimulus logs in the project folder.
+3. **Acoustic startle (ASR)** (§13): the target for the 1.0 release (user,
+   2026-11-09). **Built 2026-11-09 on `main`, not released**; checking on real
+   chamber videos is still to come.
 4. **Load a video together with an existing tracking file** (entry below).
 5. **Conditioned place preference** (only its assay name is reserved so far,
    `docs/metadata_standard.md`; needs its specs decided).

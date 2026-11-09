@@ -128,6 +128,21 @@ Review tab changes each object's type, the trial day and the phase after
 tracking, with no re-tracking. **Save as video…** draws the objects and zones
 on the saved `_tracked.mp4`.
 
+**Acoustic Startle Response** (videos): the motion index for each frame is the
+share of pixels whose brightness changed by more than the **intensity
+threshold** (default 15, previewed in setup step 3) from the frame before.
+For each stimulus, **startle amplitude** = highest motion index in the startle
+window (200 ms after it) minus highest in the baseline window (200 ms before
+it, or before the prepulse on prepulse+pulse trials). Stimuli come from the
+recording app's `_info.json`, or you type the video frames in setup step 4.
+Frames marked as repeated are left out of the peaks. The **Trials** tab lists
+Pixel.change, motion.index.before and .after, FrameNo, Time.startle,
+ReactionTime (ms from stimulus to peak) and Startle amplitude. The Summary
+gives the mean amplitude per trial type and pulse frequency, **% PPI**
+(overall and per prepulse level) and **% habituation** (first vs last block of
+pulse-alone trials). Results save as `<name>_MotionIndex.csv`, and Export
+writes `_analysis.xlsx`, `_trace.png` and `_aligned.png`.
+
 **Time bins** (per file): the session split into fixed-length bins (default
 60 s) with distance, mean speed, and time-in-zone per bin, plus the chosen
 test's measures for each bin (EPM: arm/center time, entries, % open, Anxiety
@@ -301,6 +316,7 @@ TrackTamer/
 │   ├── track_run.py    Track: videos one at a time in the background
 │   ├── playback.py     playback and the saved _tracked.mp4 (from ezTrack)
 │   ├── objects.py      object recognition: objects, zones, scoring, results
+│   ├── asr.py          acoustic startle: motion index, trials, PPI, habituation
 │   └── config.py    saved settings (config.json)
 ├── gui.py           tkinter front end
 ├── setup_window.py  Set up videos… window

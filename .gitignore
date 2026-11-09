@@ -11,6 +11,8 @@ config.json
 *_analysis.xlsx
 *_path.png
 *_heatmap.png
+*_trace.png
+*_aligned.png
 
 # Reference copy of ezTrack (upstream: github.com/denisecailab/ezTrack). Code we adapt
 # lives in our own files with attribution; the original and its videos stay out of git.
