@@ -1605,9 +1605,8 @@ standalone app (on hold).
 - ✅ **Anaconda install (§14)**: built 2026-11-03 on `main`, merged into
   `video-tracking`. Tested on Mac (fresh install, clean environment, app
   launch, regression test inside the conda env); **PC test pending**.
-- **Video analysis from ezTrack** (§12), on the `video-tracking` branch:
-  Location Tracking walkthrough decided; Freeze Analysis logged but excluded
-  from the current build; GUI review next, then build.
+- ✅ **Video analysis from ezTrack** (§12): Location Tracking built and on
+  `main`. Freeze Analysis decisions are logged, not built (priority list above).
 - **Acoustic startle (ASR) from video** (§13): planned, including PPI and
   habituation; not built. **When starting it, remind the user to add a sample
   video and stimulus logs to the folder.**
@@ -1791,7 +1790,11 @@ standalone app (on hold).
   (`tests/samples.py`). `test_video.py` re-tracks the start of the EPM example
   with the settings and reference its file recorded and matches it (median
   0.01 px), replacing the comparison with ezTrack's own EPM.csv.
-- **First PC test** (§10), whenever the user is ready.
+- **Windows testing** (§10): testers have installed, tracked and analyzed on
+  Windows (2026-11-06). Not yet reported there: export, object scoring, and
+  0.9.2's Edit trial info and saved video.
+- ✅ **Released 0.9.2 (2026-11-09):** Edit trial info after tracking, objects
+  on the saved video, Add folder skips companion CSVs (tag `v0.9.2`).
 - **Future items** (§11): immobility, now to be covered by §12's freezing.
 - **Standalone app** (bundling): on hold until the user says so.
 - New requests from the user.

@@ -114,8 +114,8 @@ first PC test when they're ready). **ROADMAP "Build order" is
 the source of truth.**
 **What to build next:** see "Priority order for what's next" in ROADMAP
 "Build order" (user, 2026-11-09). Nothing on it starts until the user asks.
-**Version 0.9.1** (2026-11-06; 0.9 was 2026-11-05, the testing release; user chose 0.x): `core/version.py`
-holds `VERSION` (About window, exported Settings sheet); git tag `v0.9`
+**Version 0.9.2** (2026-11-09; 0.9 was 2026-11-05, the testing release; user chose 0.x): `core/version.py`
+holds `VERSION` (About window, exported Settings sheet); git tags `v0.9`, `v0.9.1`, `v0.9.2`
 (GitHub pre-release). Fixes from testers go out as 0.9.1, 0.9.2, …; 1.0 comes
 after testing. Bump `VERSION` and tag for each release.
 **`video-tracking` was merged into `main` on 2026-11-05** (fast-forward) for

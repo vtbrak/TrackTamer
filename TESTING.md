@@ -1,6 +1,6 @@
 # Testing Track Tamer
 
-Thank you for testing version 0.9.1! This page covers getting the program, what to try, and
+Thank you for testing version 0.9.2! This page covers getting the program, what to try, and
 how to report problems. Plan on about 15 minutes to install, then as long as
 you like to test.
 
