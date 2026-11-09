@@ -13,7 +13,10 @@ Per stimulus (user's document, 2026-11-09):
 A motion index at frame k is the change from frame k-1 to k, so it belongs to
 the time of frame k: the startle window is the frames after the stimulus up
 to the window's end, and the baseline window is the frames up to and
-including the stimulus. Times come from the frame-time file when the
+including the stimulus. On prepulse+pulse trials the baseline ends where the
+prepulse starts (user, 2026-11-09), so it measures the animal before any
+sound. Frames the recording app marks as repeated are copies, so they're left
+out of the peaks. Times come from the frame-time file when the
 recording app wrote one, since those are what was measured.
 
 Stimuli come from the recording app's info file (the `stimuli` list, see
@@ -59,7 +62,8 @@ def analyzed_pixels(frame: np.ndarray, mask: np.ndarray | None = None) -> int:
 
 def motion_table(path: str, prep: Prep, start: int, end: int, threshold: float,
                  mask: np.ndarray | None = None, times: dict | None = None, fps: float = 0.0,
-                 progress=None, should_cancel=None) -> pd.DataFrame | None:
+                 progress=None, should_cancel=None,
+                 repeated: set | None = None) -> pd.DataFrame | None:
     """One row per frame: Frame (the video's own frame number, from 0), Time_s,
     MotionIndex_pct, AboveThreshold_px, Total_px, Frame_Unreadable. The first
     frame, an unreadable frame and the frame after one have no pair to compare,
@@ -82,7 +86,8 @@ def motion_table(path: str, prep: Prep, start: int, end: int, threshold: float,
                          "Time_s": round(when if when is not None
                                          else (index / fps if fps else 0.0), 4),
                          "MotionIndex_pct": value, "AboveThreshold_px": above,
-                         "Total_px": total, "Frame_Unreadable": bad})
+                         "Total_px": total, "Frame_Unreadable": bad,
+                         "Repeated": index in (repeated or ())})
             previous = None if bad else frame
             if progress and k % 25 == 0:
                 progress(k, count)
@@ -124,20 +129,45 @@ def frame_times(video_path: str, camera: dict | None) -> dict | None:
     return dict(zip(table["frame"].astype(int), table["video_time_s"].astype(float)))
 
 
+def repeated_frames(video_path: str, camera: dict | None) -> set:
+    """The frames the camera's `_frames.csv` marks as repeated copies."""
+    name = (camera or {}).get("timestamps_csv")
+    if not name:
+        return set()
+    path = os.path.join(os.path.dirname(os.path.abspath(video_path)), name)
+    try:
+        table = pd.read_csv(path, usecols=["frame", "repeated"])
+    except (OSError, ValueError):
+        return set()
+    return set(table.loc[table["repeated"].astype(str).str.lower() == "true", "frame"].astype(int))
+
+
 def stimuli_from_info(info: dict | None) -> list[dict]:
     """The usable entries of the info file's `stimuli` list (each needs a
-    frame), keeping only the fields the analysis reads."""
+    frame), keeping only the fields the analysis reads. Boom Box 1.1 keeps
+    the tone frequency and kind in `boom_box.trials` (same order as `stimuli`),
+    so they're taken from there when `stimuli` doesn't have them."""
     out = []
-    for s in (info or {}).get("stimuli") or []:
+    details = ((info or {}).get("boom_box") or {}).get("trials") or []
+    for n, s in enumerate((info or {}).get("stimuli") or []):
         if not isinstance(s, dict) or s.get("frame") is None:
             continue
         try:
             entry = {"frame": int(s["frame"]), "type": str(s.get("type") or PULSE)}
         except (TypeError, ValueError):
             continue
-        for key in ("video_time_s", "pulse_db", "prepulse_db", "interval_ms"):
+        for key in ("video_time_s", "pulse_db", "prepulse_db", "interval_ms", "pulse_freq_hz"):
             if isinstance(s.get(key), (int, float)):
                 entry[key] = s[key]
+        detail = details[n] if n < len(details) and isinstance(details[n], dict) else {}
+        if "pulse_freq_hz" not in entry:
+            try:
+                entry["pulse_freq_hz"] = float(detail["pulse_freq_hz"])
+            except (KeyError, TypeError, ValueError):
+                pass
+        kind = s.get("pulse_stimulus") or detail.get("pulse_stimulus")
+        if kind:
+            entry["pulse_stimulus"] = str(kind)
         out.append(entry)
     return out
 
@@ -193,7 +223,8 @@ def run_asr_job(job: AsrJob, progress=None, should_cancel=None):
     found = find_info(job.path)
     info, camera = found if found else (None, None)
     table = motion_table(job.path, job.prep, job.start, job.end, job.threshold, job.mask,
-                         frame_times(job.path, camera), job.fps, progress, should_cancel)
+                         frame_times(job.path, camera), job.fps, progress, should_cancel,
+                         repeated_frames(job.path, camera))
     if table is None:
         return None
     if table.empty or not (~table["Frame_Unreadable"]).any():
@@ -223,7 +254,9 @@ def load_motion(path: str) -> TrackingData:
     if missing:
         raise ValueError(f"{os.path.basename(path)} is missing required column(s): "
                          f"{', '.join(missing)}")
-    df["Frame_Unreadable"] = df["Frame_Unreadable"].astype(str).str.lower() == "true"
+    for column in ("Frame_Unreadable", "Repeated"):
+        if column in df.columns:
+            df[column] = df[column].astype(str).str.lower() == "true"
     settings = {c: df[c].iloc[0] for c in SETTING_COLUMNS if c in df.columns and len(df)}
     return TrackingData(path=path, df=df, settings=settings, regions=[])
 
@@ -243,14 +276,19 @@ def file_stimuli(data: TrackingData) -> list[dict]:
 
 
 # --- trials and the session ------------------------------------------------
-TRIAL_COLUMNS = ["Trial", "Type", "Prepulse_dB", "Pulse_dB", "Interval_ms", "Stimulus_Frame",
+TRIAL_COLUMNS = ["Trial", "Type", "Pulse_kHz", "Pulse_Kind", "Prepulse_dB", "Pulse_dB",
+                 "Interval_ms", "Stimulus_Frame",
                  "Stimulus_s", "Pixel.change", "motion.index.before", "motion.index.after",
                  "FrameNo", "Time.startle", "ReactionTime", "Startle amplitude", "Note"]
 
 
 def _window_peak(df: pd.DataFrame, inside: np.ndarray):
-    """(peak motion index, its row), or (nan, None) if nothing usable."""
-    values = df["MotionIndex_pct"].to_numpy(dtype=float)[inside]
+    """(peak motion index, its row), or (nan, None) if nothing usable.
+    Repeated frames are copies, so they can't be a peak."""
+    usable = df["MotionIndex_pct"].to_numpy(dtype=float).copy()
+    if "Repeated" in df.columns:
+        usable[df["Repeated"].to_numpy(dtype=bool)] = np.nan
+    values = usable[inside]
     if values.size == 0 or np.all(np.isnan(values)):
         return float("nan"), None
     return float(np.nanmax(values)), int(np.flatnonzero(inside)[int(np.nanargmax(values))])
@@ -268,10 +306,15 @@ def trial_table(data: TrackingData, startle_ms: float = 200.0,
     times = df["Time_s"].to_numpy(dtype=float)
     bad = df["Frame_Unreadable"].to_numpy(dtype=bool)
     above = df["AboveThreshold_px"].to_numpy(dtype=float)
+    copies = (df["Repeated"].to_numpy(dtype=bool) if "Repeated" in df.columns
+              else np.zeros(len(df), dtype=bool))
     rows = []
     stimuli = sorted(file_stimuli(data), key=lambda s: s["frame"])
     for n, s in enumerate(stimuli, start=1):
-        row = {"Trial": n, "Type": s.get("type", PULSE), "Prepulse_dB": s.get("prepulse_db"),
+        hz = s.get("pulse_freq_hz")
+        row = {"Trial": n, "Type": s.get("type", PULSE),
+               "Pulse_kHz": round(hz / 1000, 3) if hz else None,
+               "Pulse_Kind": s.get("pulse_stimulus"), "Prepulse_dB": s.get("prepulse_db"),
                "Pulse_dB": s.get("pulse_db"), "Interval_ms": s.get("interval_ms"),
                "Stimulus_Frame": s["frame"], "Note": ""}
         at = np.flatnonzero(frames == s["frame"])
@@ -283,15 +326,22 @@ def trial_table(data: TrackingData, startle_ms: float = 200.0,
         row["Stimulus_s"] = round(t0, 4)
         tiny = 1e-6
         after = (times > t0 + tiny) & (times <= t0 + startle_ms / 1000 + tiny)
-        before = (times > t0 - baseline_ms / 1000 + tiny) & (times <= t0 + tiny)
+        # With a prepulse, the baseline ends where the prepulse starts.
+        end = t0
+        if row["Type"] == PREPULSE_PULSE and s.get("interval_ms"):
+            end = t0 - float(s["interval_ms"]) / 1000
+        before = (times > end - baseline_ms / 1000 + tiny) & (times <= end + tiny)
         notes = []
         if t0 + startle_ms / 1000 > times[-1] + tiny:
             notes.append("startle window runs past the end")
-        if t0 - baseline_ms / 1000 < times[0] - tiny:
+        if end - baseline_ms / 1000 < times[0] - tiny:
             notes.append("baseline window starts before the recording")
         lost = int(bad[after | before].sum())
         if lost:
             notes.append(f"{lost} unreadable frame(s) in the windows")
+        same = int(copies[after | before].sum())
+        if same:
+            notes.append(f"{same} repeated frame(s) left out")
         high_after, peak = _window_peak(df, after)
         high_before, _ = _window_peak(df, before)
         row["Note"] = "; ".join(notes)
@@ -320,6 +370,14 @@ def _level(value) -> str:
     return "" if value is None or pd.isna(value) else f"{float(value):g}"
 
 
+def _pulse_label(row) -> str:
+    """"4kHz" for a tone, "noise" for noise, "" if the file doesn't say."""
+    khz = row.get("Pulse_kHz")
+    if khz is not None and not pd.isna(khz):
+        return f"{float(khz):g}kHz"
+    return str(row.get("Pulse_Kind") or "") if row.get("Pulse_Kind") == "noise" else ""
+
+
 def session_measures(trials: pd.DataFrame, block_trials: int = 10) -> dict:
     """Per trial type, prepulse inhibition and habituation, every one from the
     trials' startle amplitudes as shown.
@@ -337,6 +395,13 @@ def session_measures(trials: pd.DataFrame, block_trials: int = 10) -> dict:
         out[f"ASR_N_{kind}"] = len(values)
         out[f"ASR_Mean_{kind}"] = _mean(values)
         out[f"ASR_Median_{kind}"] = _median(values)
+        # The same per pulse frequency (or noise), when the file records it.
+        if "Pulse_kHz" in group.columns:
+            label = group.apply(_pulse_label, axis=1)
+            for name in sorted(x for x in set(label) if x):
+                part = group[label == name]["Startle amplitude"].astype(float).tolist()
+                out[f"ASR_N_{kind}_{name}"] = len(part)
+                out[f"ASR_Mean_{kind}_{name}"] = _mean(part)
     pulses = scored[scored["Type"] == PULSE]["Startle amplitude"].astype(float).tolist()
     primed = scored[scored["Type"] == PREPULSE_PULSE]
     if pulses and len(primed):

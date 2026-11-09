@@ -73,6 +73,16 @@ check("no Direction column (left out for now)", "Direction" not in t.columns)
 t = trial_table(fake([{"frame": 103, "type": "pulse", "video_time_s": 0.25}]))
 check("a measured stimulus time sets the windows (0.25 s: startle is 0.3-0.45)",
       t.iloc[0]["motion.index.after"] == 9 and t.iloc[0]["Stimulus_s"] == 0.25)
+t = trial_table(fake([{"frame": 106, "type": "prepulse+pulse", "interval_ms": 200}]))
+check("prepulse+pulse: the baseline ends at the prepulse (frames 103-104 here), not the pulse",
+      t.iloc[0]["motion.index.before"] == 9 and t.iloc[0]["motion.index.after"] == 1)
+t = trial_table(fake([{"frame": 106, "type": "pulse"}]))
+check("pulse alone: the baseline is right before the pulse",
+      t.iloc[0]["motion.index.before"] == 7)
+copies = df.copy(); copies["Repeated"] = [i == 4 for i in range(12)]
+t = trial_table(TrackingData("x", copies, {"Stimuli": json.dumps([{"frame": 103}])}, []))
+check("a repeated frame can't be the peak, and the trial says so",
+      t.iloc[0]["motion.index.after"] == 5 and "1 repeated" in t.iloc[0]["Note"])
 t = trial_table(fake([{"frame": 100}, {"frame": 111}, {"frame": 500}]))
 check("windows outside the recording leave the amplitude blank and say why",
       pd.isna(t["Startle amplitude"]).all()
@@ -101,6 +111,12 @@ check("habituation from pulse-alone blocks: first vs last",
 short = session_measures(trials, block_trials=3)
 check("a shorter last block is left out; one block gives no habituation",
       "ASR_Block2_Mean" not in short and "ASR_Habituation_pct" not in short)
+freq = pd.DataFrame({"Type": ["pulse"] * 3, "Pulse_kHz": [4.0, 4.0, 12.0], "Pulse_Kind": ["tone"] * 3,
+                     "Prepulse_dB": [None] * 3, "Interval_ms": [None] * 3,
+                     "Startle amplitude": [2.0, 4.0, 9.0]})
+f = session_measures(freq)
+check("mean per pulse frequency as well as overall",
+      f["ASR_Mean_pulse_4kHz"] == 3 and f["ASR_N_pulse_12kHz"] == 1 and f["ASR_Mean_pulse"] == 5)
 check("no pulse-alone trials: no PPI",
       "ASR_PPI_Overall_pct" not in session_measures(trials[trials["Type"] != "pulse"]))
 
@@ -122,8 +138,14 @@ try:
                "stimuli": [{"frame": 50, "video_time_s": 1.67, "type": "pulse", "pulse_db": 120},
                            {"bad": 1}]},
               open(os.path.join(tmp, "2026-11-05_16-56-42_ASR1_info.json"), "w"))
-    pd.DataFrame({"frame": range(101), "video_time_s": np.arange(101) / 29.5}).to_csv(
+    pd.DataFrame({"frame": range(101), "video_time_s": np.arange(101) / 29.5,
+                  "repeated": [i == 60 for i in range(101)]}).to_csv(
         os.path.join(tmp, "t_frames.csv"), index=False)
+    boom = {"stimuli": [{"frame": 5, "type": "pulse"}],
+            "boom_box": {"trials": [{"pulse_freq_hz": "4000.0", "pulse_stimulus": "tone"}]}}
+    check("frequency and kind come from boom_box.trials when stimuli doesn't have them",
+          stimuli_from_info(boom)[0]["pulse_freq_hz"] == 4000
+          and stimuli_from_info(boom)[0]["pulse_stimulus"] == "tone")
     info, camera = find_info(video)
     check("a video finds the info file that lists it by exact name",
           info["assay"] == "Acoustic Startle Response")
@@ -137,6 +159,8 @@ try:
     data, csv = run_asr_job(job)
     check("the motion index file is saved beside the video, with measured times",
           csv.endswith("_MotionIndex.csv") and abs(data.df["Time_s"][59] - 2.0) < 1e-3)
+    check("repeated frames are recorded from the frames file",
+          bool(data.df["Repeated"][60]) and not data.df["Repeated"][59])
     back = load_motion(csv)
     check("the file reloads with its stimuli and threshold",
           back.settings["Intensity_Threshold"] == 15 and back.regions == []

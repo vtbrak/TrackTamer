@@ -47,12 +47,14 @@ confirms. So: write bare file names (no folders), exactly as on disk, and
 keep videos and their info file together.
 
 **Reserved endings.**
-- For the apps: `_info.json`, `_info.csv`, `_frames.csv`.
+- For the apps: `_info.json`, `_info.csv`, `_frames.csv`, `_trials.csv`.
 - For Track Tamer's own files (added to a video's name, so apps must not use
   them): `_LocationOutput.csv`, `_reference.png`, `_ObjectScoring.csv`,
-  `_analysis.xlsx`, `_path.png`, `_heatmap.png`, `_tracked.mp4`.
+  `_analysis.xlsx`, `_path.png`, `_heatmap.png`, `_tracked.mp4`,
+  `_MotionIndex.csv`, `_trace.png`, `_aligned.png`.
 
-Track Tamer skips `_frames.csv` and `_info.csv` when a folder is added.
+Track Tamer skips `_frames.csv`, `_info.csv` and `_trials.csv` when a folder is
+added.
 
 ---
 
@@ -227,10 +229,23 @@ Written only for those assays.
 Track Tamer gives the objects, so each object's type can be matched. Track
 Tamer sets each object's type; the user draws the circles.
 
-### Acoustic Startle Response (planned)
-`stimuli`: one entry per trial with `frame`, `video_time_s`, `type`
-(`pulse`, `prepulse+pulse`, `prepulse`, `none`), `pulse_db`, `prepulse_db`,
-`interval_ms`. Settled when Track Tamer's startle analysis is built.
+### Acoustic Startle Response
+`stimuli`: one entry per trial that took place, in order.
+
+| Field | Type | What it is |
+|---|---|---|
+| `frame` | number | video frame at the event time, from 0 (required) |
+| `video_time_s` | number | event time, seconds from frame 0. Track Tamer's windows use this when present |
+| `type` | text | `pulse`, `prepulse+pulse`, `prepulse` or `none` |
+| `pulse_db`, `prepulse_db` | number | levels in dB SPL (absolute, not above background) |
+| `interval_ms` | number | prepulse onset to pulse onset (`prepulse+pulse` only) |
+| `pulse_freq_hz` | number | tone frequency; left out for noise |
+| `pulse_stimulus` | text | `tone` or `noise` |
+
+For `prepulse+pulse` the event time is the **pulse**; the prepulse started
+`interval_ms` earlier. Track Tamer's startle window starts at the event time.
+Its baseline window ends at the event time, or at the prepulse onset on
+`prepulse+pulse` trials.
 
 ### Fear Conditioning (planned)
 To be added when freezing analysis is built (e.g. tone and shock times).
@@ -275,6 +290,8 @@ confined to in a conditioning session).
   the JSON. Then removed (not recorded in the lab): `weight_g`, `cage`,
   `ear_tag`, dose fields, `arena_size_cm`,
   `environment`; `cohort` is labeled "Cohort / litter".
+- **Schema 1 (draft, 2026-11-09):** startle `stimuli` settled from Boom Box
+  1.1, with `pulse_freq_hz` and `pulse_stimulus` added.
 
 ---
 
@@ -312,8 +329,12 @@ taken from GitHub; refresh it from GitHub whenever the standard changes.
 ### Boom Box
 Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
 `Prepulse Inhibition`, `Startle Habituation`); arena `ASR1`, camera label
-`Side`. App-only fields in `boom_box`. Its fields will be listed here once
-its info file is written.
+`Side`. App-only fields in `boom_box`. Boom Box 1.1's full data guide is its
+`TRACK_TAMER_DATA.md`.
+
+**To change:** add `pulse_freq_hz` and `pulse_stimulus` to each `stimuli`
+entry (section 5). Until then Track Tamer reads them from `boom_box.trials`,
+which lines up with `stimuli` by position.
 
 ### Pellet Paparazzi
 Skilled reaching recording. **Not analyzed in Track Tamer** (the task and
