@@ -1590,9 +1590,10 @@ until the user asks; when they ask what's next, work from the top:
 1. ✅ **Edit object type, trial day and phase after tracking** (built
    2026-11-09; §15).
 2. ✅ **Show the objects on the saved `_tracked.mp4`** (built 2026-11-09; §15).
-3. **Load a video together with an existing tracking file** (entry below).
-4. **Acoustic startle (ASR)** (§13). First remind the user to put a sample ASR
+3. **Acoustic startle (ASR)** (§13): **next, and the target for the 1.0
+   release** (user, 2026-11-09). First remind the user to put a sample ASR
    video and its stimulus logs in the project folder.
+4. **Load a video together with an existing tracking file** (entry below).
 5. **Conditioned place preference** (only its assay name is reserved so far,
    `docs/metadata_standard.md`; needs its specs decided).
 6. **Head and tail tracking** (requested 2026-11-09; not specified yet).
