@@ -697,11 +697,25 @@ def _object_keys(columns, bins: bool = False) -> list[str]:
         [] if bins else per("OR_Latency_", "_s"))
 
 
+def _asr_keys(columns) -> list[str]:
+    """Acoustic startle's key measures: trials, the mean amplitude per trial
+    type, prepulse inhibition (overall, then each level) and habituation."""
+    columns = list(columns)
+    per = lambda prefix: [c for c in columns if c.startswith(prefix)]
+    ppi = [c for c in per("ASR_PPI_") if c != "ASR_PPI_Overall_pct"]
+    head = [c for c in ("ASR_Trials", "ASR_TrialsUsed") if c in columns]
+    tail = [c for c in ("ASR_PPI_Overall_pct",) if c in columns] + ppi + [
+        c for c in ("ASR_Habituation_pct",) if c in columns]
+    return head + per("ASR_Mean_") + tail
+
+
 def key_measures(test: str, bins: bool = False, columns=()) -> list[str]:
     """The test's key measures, in order (empty if it has none set).
-    Object Recognition's depend on the object names in `columns`."""
+    Object Recognition's and startle's depend on names in `columns`."""
     if test == "Object Recognition":
         return _object_keys(columns, bins)
+    if test == "Acoustic Startle Response":
+        return [] if bins else _asr_keys(columns)
     keys = KEY_MEASURES.get(test, [])
     return [_BIN_KEY_RENAMES.get(k, k) for k in keys] if bins else list(keys)
 
@@ -767,14 +781,14 @@ def summary_column_groups(columns, test: str = "") -> dict[str, list[str]]:
     keys = [k for k in key_measures(test, columns=columns) if k in columns]
     if not keys:  # e.g. Open Field: key = what it showed by default before
         keys = [c for c in columns if c in _BASICS] + [
-            c for c in columns if c.startswith(("EPM_", "OF_", "OR_"))]
+            c for c in columns if c.startswith(("EPM_", "OF_", "OR_", "ASR_"))]
     groups["key"] = keys
     for c in columns:
         if c == "File" or c in keys:
             continue
         if c in _BASICS:
             groups["basics"].append(c)
-        elif c.startswith(("EPM_", "OF_", "OR_")):
+        elif c.startswith(("EPM_", "OF_", "OR_", "ASR_")):
             groups["test"].append(c)  # the chosen test's own measures
         elif c.startswith("Entries_") or c in ("Region_transitions", "ROI_transitions"):
             groups["entries"].append(c)

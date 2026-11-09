@@ -15,6 +15,8 @@ OF = os.path.join(EXAMPLES, "1_2026-08-17_13-27-03_LocationOutput.csv")
 EPM_VIDEO = os.path.join(EXAMPLES, "6_2024-04-01_11-49-23.mp4")
 OF_VIDEO = os.path.join(EXAMPLES, "1_2026-08-17_13-27-03.mp4")
 OBJECT_VIDEO = os.path.join(EXAMPLES, "1_2026-06-26_14-03-15.mp4")
+ASR_CLIP = os.path.join(EXAMPLES, "ASR videos from paper",
+                        "1-s2.0-S0165027025001384-mmc10.mp4")
 
 
 def require(*paths) -> None:

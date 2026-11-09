@@ -29,6 +29,7 @@ from .loader import TrackingData, load_csv
 from .tracking import (Region, Scale, TrackingParams, assemble_output, make_reference,
                        save_outputs, track_video)
 from .video import Prep
+from .asr import ASR_TEST, MOTION_SUFFIX, AsrJob, run_asr_job
 from .objects import objects_to_text
 from .video_setup import OBJECT_TEST, VideoSetup
 
@@ -88,6 +89,8 @@ def run_job(job: TrackJob, progress=None, should_cancel=None,
     """Track one video and save `<name>_LocationOutput.csv` and
     `<name>_reference.png` next to it. Returns (loaded data, csv path), or
     None if cancelled (nothing is saved then)."""
+    if isinstance(job, AsrJob):
+        return run_asr_job(job, progress=progress, should_cancel=should_cancel)
     reference = job.reference
     if reference is None:
         if on_reference:
@@ -174,7 +177,9 @@ class TrackRunner:
             put(("finished",))
 
 
-def existing_output(video_path: str) -> str | None:
-    """The video's `_LocationOutput.csv` if one is beside it."""
-    path = os.path.splitext(video_path)[0] + "_LocationOutput.csv"
+def existing_output(video_path: str, test: str = "") -> str | None:
+    """The video's `_LocationOutput.csv` (for startle, its `_MotionIndex.csv`)
+    if one is beside it."""
+    ending = MOTION_SUFFIX if test == ASR_TEST else "_LocationOutput.csv"
+    path = os.path.splitext(video_path)[0] + ending
     return path if os.path.exists(path) else None

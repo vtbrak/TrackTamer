@@ -24,6 +24,13 @@ from .tracking import Region, Scale, make_reference
 from .video import Prep, VideoInfo, polygon_mask
 
 STEPS = ("trim", "exclusions", "reference", "tracking", "regions", "scale")
+ASR_TEST = "Acoustic Startle Response"
+ASR_STEPS = ("trim", "exclusions", "threshold", "stimuli")
+
+
+def steps_for(test: str) -> tuple:
+    """The setup steps a test uses."""
+    return ASR_STEPS if test == ASR_TEST else STEPS
 
 # The regions each test draws (ROADMAP §12, Stage 4), as (name, role). Open
 # Field draws the arena outline and the center; periphery = outline minus
@@ -67,6 +74,9 @@ class VideoSetup:
     object_kinds: dict[str, str] = field(default_factory=dict)
     trial_day: str = ""
     trial_phase: str = ""
+    # Acoustic startle (ROADMAP §13): stimulus frames typed in, for videos
+    # without an info file listing them.
+    stimulus_frames: list[int] = field(default_factory=list)
 
     @property
     def end_frame(self) -> int:
@@ -199,6 +209,12 @@ class VideoSetup:
         """Every setup step looked at (regions and scale may be skipped on
         purpose; Track warns about those)."""
         return all(s in self.steps_done for s in STEPS) and self.reference is not None
+
+    def ready_for(self, test: str) -> bool:
+        """Every step of this test's setup looked at."""
+        if test == ASR_TEST:
+            return all(s in self.steps_done for s in ASR_STEPS)
+        return self.ready
 
     # --- drafts from another video ---------------------------------------
     def copy_from(self, other: "VideoSetup") -> None:

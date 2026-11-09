@@ -339,3 +339,71 @@ def heatmap_figure(
     ax.set_xlabel("X (px)")
     ax.set_ylabel("Y (px)")
     return fig
+
+
+# --- acoustic startle (ROADMAP §13) ----------------------------------------
+# One color per trial type, always in this order (Okabe-Ito: readable with
+# color-vision differences).
+TRIAL_COLORS = ("#0072B2", "#D55E00", "#009E73", "#CC79A7")
+STARTLE_FIGSIZE = (9.0, 4.6)
+
+
+def motion_figure(data: TrackingData, trials) -> Figure:
+    """The motion index across the session, with each stimulus marked."""
+    fig = Figure(figsize=STARTLE_FIGSIZE, dpi=100, layout="constrained")
+    ax = fig.add_subplot(111)
+    ax.plot(data.df["Time_s"], data.df["MotionIndex_pct"], color=TRIAL_COLORS[0], linewidth=1.0)
+    onsets = [] if trials is None or trials.empty else trials["Stimulus_s"].dropna().tolist()
+    for t in onsets:
+        ax.axvline(t, color="0.55", linewidth=0.8, linestyle="--", zorder=0)
+    ax.set_title(f"Motion index ({len(onsets)} stimuli marked) \u2014 {data.name}")
+    ax.set_xlabel("Video time (s)")
+    ax.set_ylabel("Motion index (% of pixels)")
+    ax.spines[["top", "right"]].set_visible(False)
+    return fig
+
+
+def aligned_figure(data: TrackingData, trials, startle_ms: float, baseline_ms: float) -> Figure:
+    """Every trial's motion index lined up on its stimulus: thin lines for
+    trials, a heavy line for each trial type's mean."""
+    fig = Figure(figsize=STARTLE_FIGSIZE, dpi=100, layout="constrained")
+    ax = fig.add_subplot(111)
+    ax.set_title(f"Trials aligned to the stimulus \u2014 {data.name}")
+    ax.set_xlabel("Time from stimulus (ms)")
+    ax.set_ylabel("Motion index (% of pixels)")
+    ax.spines[["top", "right"]].set_visible(False)
+    if trials is None or trials.empty:
+        ax.text(0.5, 0.5, "This file has no stimuli to align.", transform=ax.transAxes,
+                ha="center", va="center", color="0.4")
+        return fig
+    frames = data.df["Frame"].to_numpy(dtype=int)
+    values = data.df["MotionIndex_pct"].to_numpy(dtype=float)
+    times = data.df["Time_s"].to_numpy(dtype=float)
+    step = float(np.median(np.diff(times))) if len(times) > 1 else 0.0
+    if step <= 0:
+        return fig
+    before = int(np.ceil(baseline_ms / 1000 / step))
+    after = int(np.ceil(startle_ms / 1000 / step))
+    offsets = np.arange(-before + 1, after + 1)
+    x = offsets * step * 1000
+    kinds = sorted(trials["Type"].astype(str).unique())
+    for k, kind in enumerate(kinds):
+        color = TRIAL_COLORS[min(k, len(TRIAL_COLORS) - 1)]
+        traces = []
+        for frame in trials.loc[trials["Type"].astype(str) == kind, "Stimulus_Frame"]:
+            at = np.flatnonzero(frames == int(frame))
+            if at.size == 0:
+                continue
+            rows = at[0] + offsets
+            trace = np.full(len(rows), np.nan)
+            good = (rows >= 0) & (rows < len(values))
+            trace[good] = values[rows[good]]
+            traces.append(trace)
+            ax.plot(x, trace, color=color, linewidth=0.7, alpha=0.3)
+        if traces and np.any(~np.isnan(np.array(traces))):
+            ax.plot(x, np.nanmean(np.array(traces), axis=0), color=color, linewidth=2.2,
+                    label=f"{kind} (mean of {len(traces)})")
+    ax.axvline(0, color="0.35", linewidth=1.0, linestyle="--", zorder=0)
+    if ax.get_legend_handles_labels()[0]:
+        ax.legend(frameon=False, loc="upper left")
+    return fig

@@ -60,6 +60,12 @@ DEFAULTS: dict = {
     # (2026-11-05): wide enough to catch every possible interaction, which
     # the experimenter then confirms or rejects. Never locks.
     "object_zone_cm": 4.0,
+    # Acoustic startle (ROADMAP §13): pixel intensity change that counts as
+    # movement (0-255; locks at the first Track), and the analysis windows.
+    "asr_threshold": 15.0,
+    "asr_startle_ms": 200.0,
+    "asr_baseline_ms": 200.0,
+    "asr_block_trials": 10,
     # Plot style.
     "plot": {
         "point_size": 4.0,  # float so sizes like 2.5 survive a reload

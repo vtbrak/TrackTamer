@@ -15,7 +15,8 @@ from matplotlib.path import Path
 
 from .loader import TrackingData, parse_roi_coordinates
 
-TEST_TYPES = ["Elevated Plus Maze", "Open Field", "Object Recognition"]
+TEST_TYPES = ["Elevated Plus Maze", "Open Field", "Object Recognition",
+              "Acoustic Startle Response"]
 
 # Role keys in display order, with their on-screen names. "" = not yet assigned.
 ROLE_LABELS = {
