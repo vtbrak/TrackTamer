@@ -1577,6 +1577,20 @@ Done:
 10. ✅ **Export (§9).**
 11. ✅ **Test measures per time bin (§5b).**
 
+**Priority order for what's next (user, 2026-11-09).** Nothing here starts
+until the user asks; when they ask what's next, work from the top:
+1. **Edit object type, trial day and phase after tracking** (today that means
+   re-tracking; §15 follow-ups).
+2. **Show the objects on the saved `_tracked.mp4`** (§15 follow-ups).
+3. **Load a video together with an existing tracking file** (entry below).
+4. **Acoustic startle (ASR)** (§13). First remind the user to put a sample ASR
+   video and its stimulus logs in the project folder.
+5. **Conditioned place preference** (only its assay name is reserved so far,
+   `docs/metadata_standard.md`; needs its specs decided).
+
+Not ranked: freezing analysis (§12), reading the capture apps' info files
+(§16, after 1.0), and the standalone app (on hold).
+
 **Everything planned so far is built** (as of 2026-10-30). Still open:
 - ✅ **Anaconda install (§14)**: built 2026-11-03 on `main`, merged into
   `video-tracking`. Tested on Mac (fresh install, clean environment, app
