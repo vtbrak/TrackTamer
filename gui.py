@@ -76,7 +76,8 @@ from core.video import (VIDEO_EXTENSIONS, UNREADABLE_WARN, check_readable, is_vi
                         video_info)
 from core.version import VERSION
 from core.video_setup import OBJECT_TEST, VideoSetup
-from core.asr import ASR_TEST, asr_summary, is_motion_file, load_motion, make_asr_job
+from core.asr import (ASR_TEST, asr_summary, is_motion_file, load_motion, make_asr_job,
+                      trial_table)
 from core.plotting import aligned_figure, motion_figure
 from core.objects import (distance_px, load_scoring, object_metrics, scoring_table,
                           trial_summary)
@@ -1154,9 +1155,19 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         if self.nb.select() != str(self.review):
             return
         entry = self._selected_entry()
-        if self.test_var.get() == ASR_TEST:
-            self.review.show_message("The Review tab isn't used for Acoustic Startle. Each "
-                                     "trial is listed in the Trials tab.")
+        startle = self.test_var.get() == ASR_TEST
+        if (startle and entry is not None and entry.data is not None
+                and is_motion_file(entry.data.path)):
+            c = self.config_data
+            startle_ms, baseline_ms = float(c["asr_startle_ms"]), float(c["asr_baseline_ms"])
+            trials = (entry.bins if entry.analyzed
+                      else trial_table(entry.data, startle_ms, baseline_ms))
+            self.review.load(entry.data, entry.video.path if entry.video else None, {}, 1.0,
+                             title=entry.label, trials=trials, startle_ms=startle_ms,
+                             baseline_ms=baseline_ms)
+        elif startle and entry is not None and entry.data is not None:
+            self.review.show_message(f"{entry.label} is a tracking file, not a startle motion "
+                                     "index file. Track its video with this test first.")
         elif entry is None:
             self.review.show_message("Select a tracked file in the file list to review "
                                      "its video.")

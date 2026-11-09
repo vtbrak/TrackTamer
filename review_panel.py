@@ -30,6 +30,8 @@ import traceback
 from tkinter import ttk
 
 from core.metrics import _outside_mask, outside_events, region_labels, secs
+import numpy as np
+
 from core.objects import (KINDS, PHASES, Bout, distance_px, file_objects, load_scoring,
                           object_at, save_scoring, scoring_path, trial_info,
                           update_trial_info, zone_visits)
@@ -49,6 +51,11 @@ ZONE_COLOR = "#ffffff"
 ACTIVE_COLOR = "#39d353"
 VISIT_COLUMNS = (("#", 34), ("Object", 90), ("Frame", 64), ("Session time", 84),
                  ("Video time", 78), ("Length (s)", 66), ("Scored", 110))
+TRIAL_COLUMNS = (("#", 34), ("Type", 104), ("kHz", 48), ("Stimulus frame", 92),
+                 ("Video time", 78), ("Before", 66), ("After", 66), ("Amplitude", 76),
+                 ("Peak frame", 76), ("Reaction (ms)", 88), ("Note", 150))
+STIMULUS_COLOR = "#ffd23f"
+PEAK_COLOR = "#ff5a5a"
 STATUS_TEXT = {"scored": "interaction", "none": "no interaction", "": "to review"}
 EVENT_COLUMNS = (("#", 34), ("Frame", 64), ("Session time", 84), ("Video frame", 78),
                  ("Video time", 78), ("Length (s)", 66), ("Counted as", 96),
@@ -138,19 +145,68 @@ class ObjectScorer:
         return out
 
 
+def _blank(value) -> bool:
+    return value is None or (isinstance(value, float) and value != value)
+
+
+class StartleTrials:
+    """A startle file's trials, for the Review list and the playback window
+    (ROADMAP §13): where each stimulus and peak falls in the file's rows."""
+
+    def __init__(self, data, trials, startle_ms: float, baseline_ms: float):
+        self.data, self.startle_ms, self.baseline_ms = data, startle_ms, baseline_ms
+        self.frames = data.df["Frame"].to_numpy(dtype=int)
+        self.times = data.df["Time_s"].to_numpy(dtype=float)
+        self.values = data.df["MotionIndex_pct"].to_numpy(dtype=float)
+        self.rows = trials.to_dict("records")
+
+    def row_of(self, frame) -> int | None:
+        """The file row showing a video frame (None if it isn't analyzed)."""
+        if _blank(frame):
+            return None
+        at = int(np.searchsorted(self.frames, int(frame)))
+        return at if at < len(self.frames) and self.frames[at] == int(frame) else None
+
+    def stimulus_row(self, k: int) -> int | None:
+        return self.row_of(self.rows[k]["Stimulus_Frame"])
+
+    def peak_row(self, k: int) -> int | None:
+        return self.row_of(self.rows[k].get("FrameNo"))
+
+    def describe(self, k: int, row: int) -> str:
+        """Where a frame sits relative to trial k's stimulus and windows."""
+        t = self.rows[k]
+        zero = t.get("Stimulus_s")
+        if _blank(zero):
+            return f"trial {t['Trial']} ({t['Type']})"
+        offset = (float(self.times[row]) - float(zero)) * 1000
+        end = float(zero)
+        if t["Type"] == "prepulse+pulse" and not _blank(t.get("Interval_ms")):
+            end -= float(t["Interval_ms"]) / 1000
+        now, tiny = float(self.times[row]), 1e-6
+        place = ""
+        if float(zero) + tiny < now <= float(zero) + self.startle_ms / 1000 + tiny:
+            place = ", startle window"
+        elif end - self.baseline_ms / 1000 + tiny < now <= end + tiny:
+            place = ", baseline window"
+        return f"trial {t['Trial']} ({t['Type']}): {offset:+.0f} ms from the stimulus{place}"
+
+
 class PlaybackWindow(tk.Toplevel):
     """A tracked file's video with its tracking drawn on, in its own window."""
 
     def __init__(self, parent, pb, labels, outside, title: str, scorer=None,
-                 on_visit=None):
+                 on_visit=None, startle=None):
         super().__init__(parent)
         self.pb = pb
         self.scorer = scorer
+        self.startle = startle
+        self.trial: int | None = None     # the startle trial being viewed
         self.on_visit = on_visit or (lambda index: None)   # Review list follows
         self.source = FrameSource(pb)
         self._labels, self._outside = labels, outside
         self.title(f"Playback: {title}")
-        self.geometry("960x900" if scorer else "960x760")
+        self.geometry("960x900" if scorer else "960x800" if startle else "960x760")
         self.minsize(600, 480)
         self.row = 0
         self.playing = False
@@ -170,6 +226,8 @@ class PlaybackWindow(tk.Toplevel):
         bar2.pack(side=tk.BOTTOM, fill=tk.X)
         if self.scorer is not None:
             self._build_scoring()
+        if self.startle is not None:
+            self._build_startle()
         bar = ttk.Frame(self, padding=(8, 6, 8, 4))
         bar.pack(side=tk.BOTTOM, fill=tk.X)
         self.slider = ttk.Scale(self, from_=0, to=max(self.pb.n_frames - 1, 0),
@@ -220,6 +278,8 @@ class PlaybackWindow(tk.Toplevel):
                                "frame rate. Replaces an earlier one.")
         self.save_text = ttk.Label(bar2, foreground="gray")
         self.save_text.pack(side=tk.RIGHT, padx=8)
+        if self.startle is not None:   # no tracked position to show or save
+            bar2.pack_forget()
 
     # ------------------------------------------------------------- showing
     def _trail_frames(self) -> int:
@@ -270,6 +330,15 @@ class PlaybackWindow(tk.Toplevel):
                               dash=(6, 4), width=2 if o.name == here else 1)
                 c.create_text(sx, sy - z - 10, text=f"{o.name} ({o.kind.lower()})",
                               fill="white", font=("TkDefaultFont", 11, "bold"))
+        if self.startle is not None and self.trial is not None:
+            words = []
+            if row == self.startle.stimulus_row(self.trial):
+                words.append(("STIMULUS", STIMULUS_COLOR))
+            if row == self.startle.peak_row(self.trial):
+                words.append(("STARTLE PEAK", PEAK_COLOR))
+            for k, (text, color) in enumerate(words):
+                c.create_text(c.winfo_width() / 2, 24 + 28 * k, text=text, fill=color,
+                              font=("TkDefaultFont", 18, "bold"))
         trail = self._trail_frames()
         if trail:
             pts = pb.trail(row, trail)
@@ -290,8 +359,13 @@ class PlaybackWindow(tk.Toplevel):
                  f"video frame {vf:,}", f"video time {clock(vf / pb.fps)}"]
         if pb.unreadable(row):
             parts.append("unreadable frame (no position)")
-        elif pb.position(row) is None:
+        elif self.startle is None and pb.position(row) is None:
             parts.append("no position found")
+        elif self.startle is not None:
+            value = self.startle.values[row]
+            parts.append("no motion index" if value != value else f"motion index {value:.4f}%")
+            if self.trial is not None:
+                parts.append(self.startle.describe(self.trial, row))
         elif self.scorer is not None:
             here = self.scorer.object_at(row)
             parts.append(f"in the {here} zone" if here else "in no object zone")
@@ -427,6 +501,77 @@ class PlaybackWindow(tk.Toplevel):
         elif state["result"]:
             show_info(self, "Video saved",
                       f"Saved {os.path.basename(state['result'])} next to the video.")
+
+    # ------------------------------------------------------------- startle
+    def _build_startle(self) -> None:
+        """Move between the startle trials (ROADMAP §13)."""
+        box = ttk.LabelFrame(self, text="Startle trials", padding=(8, 4))
+        box.pack(side=tk.BOTTOM, fill=tk.X, padx=8, pady=(0, 8))
+        row = ttk.Frame(box)
+        row.pack(fill=tk.X)
+        for text, command, tip in (
+                ("◀ Previous trial  [", lambda: self.go_trial(-1), "The previous trial (the [ key)."),
+                ("Next trial ▶  ]", lambda: self.go_trial(1), "The next trial (the ] key)."),
+                ("Go to stimulus", self.go_stimulus, "This trial's stimulus frame."),
+                ("Go to peak", self.go_peak, "The frame with this trial's highest motion index.")):
+            button = ttk.Button(row, text=text, command=command)
+            button.pack(side=tk.LEFT, padx=(0, 6))
+            Tooltip(button, tip)
+        self.trial_text = ttk.Label(box, anchor=tk.W, justify=tk.LEFT)
+        self.trial_text.pack(fill=tk.X, pady=(4, 0))
+        self.bind("<KeyPress-bracketright>", lambda e: self.go_trial(1))
+        self.bind("<KeyPress-bracketleft>", lambda e: self.go_trial(-1))
+        self.trial_text.configure(text="Pick a trial in the Review list, or click Next trial.")
+
+    def open_trial(self, k: int) -> None:
+        """Show trial k at its stimulus frame."""
+        st = self.startle
+        self.pause()
+        row = st.stimulus_row(k)
+        t = st.rows[k]
+        self.trial = k
+        amplitude = t.get("Startle amplitude")
+        note = t.get("Note")
+        self.trial_text.configure(text=(
+            f"Trial {k + 1} of {len(st.rows)}: {t['Type']}, stimulus frame {t['Stimulus_Frame']:,}, "
+            + ("no amplitude" if _blank(amplitude) else f"amplitude {amplitude:g}")
+            + (f" ({note})" if isinstance(note, str) and note else "")))
+        if row is None:
+            self._redraw()
+            return
+        self.show(row)
+        self.on_visit(k)
+
+    def go_trial(self, step: int) -> None:
+        st = self.startle
+        order = [k for k in range(len(st.rows)) if st.stimulus_row(k) is not None]
+        if not order:
+            return
+        span = max(15, int(round(0.5 * (self.pb.fps or 30))))   # frames that belong to a trial
+        current = self.trial if self.trial in order else None
+        near = current is not None and abs(self.row - st.stimulus_row(current)) <= span
+        anchor = st.stimulus_row(current) if near else self.row
+        if step > 0:
+            later = [k for k in order if st.stimulus_row(k) > anchor]
+            target = later[0] if later else None
+        else:
+            earlier = [k for k in order if st.stimulus_row(k) < anchor]
+            target = earlier[-1] if earlier else None
+        if target is None:
+            self.trial_text.configure(text="That was the last trial." if step > 0
+                                      else "That was the first trial.")
+            return
+        self.open_trial(target)
+
+    def go_stimulus(self) -> None:
+        if self.trial is not None and self.startle.stimulus_row(self.trial) is not None:
+            self.pause()
+            self.show(self.startle.stimulus_row(self.trial))
+
+    def go_peak(self) -> None:
+        if self.trial is not None and self.startle.peak_row(self.trial) is not None:
+            self.pause()
+            self.show(self.startle.peak_row(self.trial))
 
     # ------------------------------------------------------------- scoring
     def _build_scoring(self) -> None:
@@ -726,6 +871,7 @@ class ReviewPanel(ttk.Frame):
         self.on_cutoff = on_cutoff or (lambda value: None)
         self.on_scored = on_scored or (lambda data: None)
         self.scorer: ObjectScorer | None = None
+        self.startle: StartleTrials | None = None
         self.pb = None
         self._data = None
         self._title = ""
@@ -794,19 +940,30 @@ class ReviewPanel(ttk.Frame):
         self.message.pack(side=tk.TOP, anchor="nw")
 
     def load(self, data, video_hint, roles: dict, cutoff: float, title: str = "",
-             zone_cm: float | None = None, min_frames: int = 1) -> None:
+             zone_cm: float | None = None, min_frames: int = 1, trials=None,
+             startle_ms: float = 200.0, baseline_ms: float = 200.0) -> None:
         """List this tracking file's points to review (the video opens on
         request). Says why instead if the video can't be matched to it.
         With `zone_cm` (Object Recognition), the list is the zone visits to
-        score instead."""
+        score instead. With `trials` (Acoustic Startle), it's the startles to
+        jump to."""
         self.cutoff_var.set(f"{cutoff:g}")
         objects_mode = zone_cm is not None
+        startle_mode = trials is not None
+        if startle_mode and data is self._data and self.pb is not None and self.startle:
+            keep = self.window.trial if self.window is not None and self.window.winfo_exists() else None
+            self.startle = StartleTrials(data, trials, startle_ms, baseline_ms)
+            if self.window is not None and self.window.winfo_exists():
+                self.window.startle, self.window.trial = self.startle, keep
+            self._fill_events()
+            return
         if objects_mode and not file_objects(data):
             self.show_message("This tracking file has no objects drawn, so there's "
                               "nothing to score. Draw the objects in Set up videos… "
                               "(step 5) and track the video again.")
             return
-        if data is self._data and self.pb is not None and objects_mode == bool(self.scorer):
+        if (data is self._data and self.pb is not None and not startle_mode and not self.startle
+                and objects_mode == bool(self.scorer)):
             if self.scorer is not None:
                 self.zone_changed(zone_cm)
             else:
@@ -821,12 +978,13 @@ class ReviewPanel(ttk.Frame):
         self.pb, self._data, self._title = pb, data, title or os.path.basename(pb.video)
         self.scorer = (ObjectScorer(data, pb.fps, zone_cm, min_frames,
                                     on_change=self._scored) if objects_mode else None)
+        self.startle = StartleTrials(data, trials, startle_ms, baseline_ms) if startle_mode else None
         self._set_mode()
-        self.events = [] if objects_mode else outside_events(data, roles, pb.fps)
+        self.events = [] if objects_mode or startle_mode else outside_events(data, roles, pb.fps)
         # The region each frame counted for (outside frames included) and
         # which frames were outside the drawn regions, for the info line.
-        self._labels = region_labels(data, roles)[0]
-        self._outside = _outside_mask(data)
+        self._labels = [] if startle_mode else region_labels(data, roles)[0]
+        self._outside = [] if startle_mode else _outside_mask(data)
         self.message.pack_forget()
         self.body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self._fill_events()
@@ -839,7 +997,8 @@ class ReviewPanel(ttk.Frame):
             try:
                 self.window = PlaybackWindow(self.winfo_toplevel(), self.pb, self._labels,
                                              self._outside, self._title, scorer=self.scorer,
-                                             on_visit=self._select_visit)
+                                             on_visit=self._select_visit,
+                                             startle=self.startle)
             except Exception as exc:
                 traceback.print_exc()
                 show_warning(self, "The video couldn't be opened",
@@ -904,21 +1063,23 @@ class ReviewPanel(ttk.Frame):
         """Outside-region points (EPM, Open Field) or zone visits to score
         (Object Recognition): the columns, heading and cutoff box."""
         objects = self.scorer is not None
-        cols = VISIT_COLUMNS if objects else EVENT_COLUMNS
+        startle = self.startle is not None
+        cols = TRIAL_COLUMNS if startle else VISIT_COLUMNS if objects else EVENT_COLUMNS
         self.tree.configure(columns=[c for c, _ in cols])
         for col, width in cols:
             self.tree.heading(col, text=col)
             self.tree.column(col, width=width, minwidth=width, anchor=tk.CENTER,
-                             stretch=col in ("Check", "Scored"))
-        self.heading.configure(text="Zone visits to score" if objects else "Points to review")
+                             stretch=col in ("Check", "Scored", "Note"))
+        self.heading.configure(text="Startles" if startle else
+                               "Zone visits to score" if objects else "Points to review")
         if objects:
             self.trial_btn.pack(side=tk.LEFT, padx=(6, 0))
         else:
             self.trial_btn.pack_forget()
         for w in (self.cutoff_entry, self.cutoff_label):
-            if objects:
+            if objects or startle:
                 w.pack_forget()
-        if not objects and not self.cutoff_entry.winfo_manager():
+        if not objects and not startle and not self.cutoff_entry.winfo_manager():
             self.cutoff_entry.pack(side=tk.RIGHT)
             self.cutoff_label.pack(side=tk.RIGHT, padx=(0, 4))
 
@@ -928,6 +1089,7 @@ class ReviewPanel(ttk.Frame):
         self.window = None
         self.pb = self._data = None
         self.scorer = None
+        self.startle = None
         self.events = []
 
     def _cutoff(self) -> float:
@@ -942,6 +1104,35 @@ class ReviewPanel(ttk.Frame):
         self.cutoff_var.set(f"{value:g}")
         self.on_cutoff(value)
         self._fill_events()
+
+    def _fill_trials(self) -> None:
+        pb, st = self.pb, self.startle
+        shown = lambda v, f="{:g}": "" if _blank(v) else f.format(v)
+        used = 0
+        for k, t in enumerate(st.rows):
+            amplitude = t.get("Startle amplitude")
+            used += not _blank(amplitude)
+            row = st.stimulus_row(k)
+            frame = int(t["Stimulus_Frame"])
+            when = "" if _blank(t.get("Stimulus_s")) else clock(float(t["Stimulus_s"]))
+            note = t.get("Note") if isinstance(t.get("Note"), str) else ""
+            self.tree.insert("", tk.END, iid=str(k), tags=("flag",) if _blank(amplitude) else (),
+                             values=(t["Trial"], t["Type"], shown(t.get("Pulse_kHz")), f"{frame:,}",
+                                     when, shown(t.get("motion.index.before")),
+                                     shown(t.get("motion.index.after")), shown(amplitude),
+                                     "" if _blank(t.get("FrameNo")) else f"{int(t['FrameNo']):,}",
+                                     shown(t.get("ReactionTime")),
+                                     note if row is not None else note or "outside the video"))
+        if not st.rows:
+            self.summary.configure(text="This file has no stimuli listed, so there are no "
+                                        "startles to show.")
+            return
+        self.summary.configure(text=(
+            f"{len(st.rows)} trials, {used} with an amplitude. Click a row to open the video "
+            "at that stimulus; in the playback window, Previous and Next trial move "
+            "between them. Rows in red have no amplitude; the Note says why."))
+        if self.window is not None and self.window.winfo_exists() and self.window.trial is not None:
+            self._select_visit(self.window.trial)
 
     def _fill_visits(self) -> None:
         pb, sc = self.pb, self.scorer
@@ -979,6 +1170,9 @@ class ReviewPanel(ttk.Frame):
         self.tree.delete(*self.tree.get_children())
         if self.pb is None:
             return
+        if self.startle is not None:
+            self._fill_trials()
+            return
         if self.scorer is not None:
             self._fill_visits()
             return
@@ -1012,6 +1206,13 @@ class ReviewPanel(ttk.Frame):
 
     def _on_event(self, _e=None) -> None:
         sel = self.tree.selection()
+        if sel and self.pb is not None and self.startle is not None:
+            current = self.window if self.window is not None and self.window.winfo_exists() else None
+            if current is None or current.trial != int(sel[0]):
+                win = self.open_window()
+                if win is not None:
+                    win.open_trial(int(sel[0]))
+            return
         win = self.window if self.window is not None and self.window.winfo_exists() else None
         if (sel and win is not None and self.scorer is not None
                 and win.visit is self.scorer.visits[int(sel[0])]):

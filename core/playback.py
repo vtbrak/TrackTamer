@@ -127,6 +127,8 @@ class Playback:
         return self.start + row
 
     def position(self, row: int) -> tuple[float, float] | None:
+        if "X" not in self.data.df.columns:     # a startle motion index file
+            return None
         x, y = self.data.df["X"].iat[row], self.data.df["Y"].iat[row]
         return (float(x), float(y)) if pd.notna(x) and pd.notna(y) else None
 
@@ -144,6 +146,8 @@ class Playback:
         return "" if pd.isna(v) or v == "non_roi" else str(v)
 
     def trail(self, row: int, frames: int) -> list[tuple[float, float] | None]:
+        if "X" not in self.data.df.columns:
+            return []
         lo = max(0, row - frames)
         xs = self.data.df["X"].iloc[lo:row + 1].to_numpy()
         ys = self.data.df["Y"].iloc[lo:row + 1].to_numpy()

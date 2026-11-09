@@ -92,9 +92,45 @@ check("Summary shows the key measures by default",
 check("Trials tab lists the trial with your headings",
       "Startle amplitude" in app.bins_tree["columns"] and "Direction" not in app.bins_tree["columns"]
       and len(app.bins_tree.get_children()) == 1 and "1 trial" in app.bins_note.get())
-app.nb.select(app.review); app.update()
-check("Review tab says it isn't used", "isn't used" in app.review.message.cget("text"))
-app.nb.select(app.tab_summary); app.update()
+# The startles listed in the Review tab, jumped to in the playback window.
+from core.asr import AsrJob, run_asr_job, trial_table
+from core.video import Prep
+app.nb.select(app.review); app.update(); app._show_review(); app.update()
+rv = app.review
+check("Review tab lists the startles", rv.heading.cget("text") == "Startles"
+      and len(rv.tree.get_children()) == 1 and not rv.cutoff_entry.winfo_manager()
+      and rv.tree.item("0", "values")[3] == "50")
+rv.tree.selection_set("0"); app.update()
+pw = rv.window
+check("clicking a startle opens the playback window at its stimulus",
+      pw is not None and pw.row == 50 and pw.trial == 0 and "motion index" in pw.info.cget("text")
+      and "+0 ms from the stimulus" in pw.info.cget("text"))
+words = lambda: [pw.canvas.itemcget(i, "text") for i in pw.canvas.find_all() if pw.canvas.type(i) == "text"]
+check("the stimulus frame is marked on the video", "STIMULUS" in words())
+pw.go_peak(); app.update()
+check("Go to peak shows the peak frame, marked, in the startle window",
+      pw.row == 51 and "STARTLE PEAK" in words() and "startle window" in pw.info.cget("text"))
+pw.step(-2); app.update()
+check("the info line says when a frame is in the baseline window", "baseline window" in pw.info.cget("text"))
+other = shutil.copy(CLIP, os.path.join(tmp, "many.mp4"))
+many, _ = run_asr_job(AsrJob(other, Prep(), 0, 101, None, 15.0, 30.0, 0, [30, 50, 70, 500]))
+rv.load(many, other, {}, 1.0, title="many", trials=trial_table(many)); app.update()
+check("every stimulus is listed, and one outside the video is flagged",
+      len(rv.tree.get_children()) == 4 and "outside" in rv.tree.item("3", "values")[-1])
+rv.tree.selection_set("0"); app.update(); pw = rv.window
+pw.go_trial(1); app.update()
+check("Next trial jumps to the next stimulus and the list follows",
+      pw.row == 50 and pw.trial == 1 and rv.tree.selection() == ("1",)
+      and "Trial 2 of 4" in pw.trial_text.cget("text"))
+pw.go_trial(-1); app.update()
+check("Previous trial goes back", pw.row == 30 and rv.tree.selection() == ("0",))
+pw.go_trial(1); pw.go_trial(1); pw.go_trial(1); app.update()
+check("Next stops at the last trial in the video and says so",
+      pw.row == 70 and "last trial" in pw.trial_text.cget("text"))
+rv.tree.selection_set("3"); app.update()
+check("a stimulus outside the video doesn't move the frame, and says why",
+      pw.row == 70 and "outside" in pw.trial_text.cget("text"))
+app.nb.select(app.tab_summary); app.update(); rv.unload()
 check("startle settings lock at Analyze; threshold locked after Track",
       str(app.asr_startle_entry.cget("state")) == "disabled"
       and str(app.asr_threshold_entry.cget("state")) == "disabled")

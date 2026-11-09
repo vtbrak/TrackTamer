@@ -1323,8 +1323,11 @@ Trials / Motion Trace / Aligned Trials; tests `test_asr.py`, `test_asr_gui.py`).
 assumed, since they carry no stimulus information): the peak falls 1-2 frames
 after it in every clip. The paper's own values aren't available to compare.
 **Not built yet:** flag for animals already moving at baseline; histogram and
-noise check in the threshold step; Review/playback for trials; editing stimuli
-without re-running; Direction. **Waiting on:** real chamber videos (validation,
+noise check in the threshold step; editing stimuli without re-running;
+Direction. **Added (user, 2026-11-09):** the Review tab lists the startles;
+clicking one opens the playback window at its stimulus, which has Previous /
+Next trial, Go to stimulus and Go to peak, and marks the stimulus and peak
+frames on the video. **Waiting on:** real chamber videos (validation,
 window and threshold choices).
 
 ### 14. Anaconda install (requested 2026-11-03 — ✅ built 2026-11-03 on `main`, merged into `video-tracking`)

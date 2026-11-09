@@ -109,6 +109,8 @@ not just crashes.
    Otherwise type the video frame of each stimulus.
 4. Click **Track**, then **Analyze**, and look at **Trials**, **Motion Trace**
    and **Aligned Trials**. Then click **Export**.
+5. Open the **Review** tab and click a startle. In the playback window, use
+   **Next trial**, **Go to peak** and the frame buttons.
 
 ---
 

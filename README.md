@@ -137,7 +137,10 @@ it, or before the prepulse on prepulse+pulse trials). Stimuli come from the
 recording app's `_info.json`, or you type the video frames in setup step 4.
 Frames marked as repeated are left out of the peaks. The **Trials** tab lists
 Pixel.change, motion.index.before and .after, FrameNo, Time.startle,
-ReactionTime (ms from stimulus to peak) and Startle amplitude. The Summary
+ReactionTime (ms from stimulus to peak) and Startle amplitude. The **Review**
+tab lists every startle; click one to open the video at its stimulus, and use
+**Next trial** / **Previous trial** ([ and ]), **Go to stimulus** and **Go to
+peak** in the playback window. The Summary
 gives the mean amplitude per trial type and pulse frequency, **% PPI**
 (overall and per prepulse level) and **% habituation** (first vs last block of
 pulse-alone trials). Results save as `<name>_MotionIndex.csv`, and Export
