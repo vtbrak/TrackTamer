@@ -1610,6 +1610,18 @@ previous frame.
   travel stays a fallback only.
 - No hand-labeled frames yet: "right by eye" is from 40 sampled frames per
   video, not a measured accuracy.
+**Center vs nose on the object trial (2026-11-10;
+`prototypes/head_tail_center_vs_nose.py`).** The center stays as it is and
+the nose is added beside it. Nose to center: median 3.2 cm (2.4-4.8). The
+user's three scored interactions (all object 2): nose 1.1-1.7 cm from the
+object (within 2 cm in 93-100% of their frames), center 3.0-4.7 cm. Object 2:
+center within 4 cm 48.9 s in 27 visits; nose within 4 cm 47.1 s in 36; nose
+within 2 cm 17.5 s in 13. 17.2 s of center-zone time has the nose outside
+the zone (animal beside the object, facing away); 4.8 s of nose-within-2-cm
+time has the center outside the 4 cm zone (reaching in). Some object 1
+"visits" are the tracked point sitting near the object with no animal in the
+picture (before placement); no silhouette is found there, which could flag
+them.
 **Found on the way (to fix on `main`):** tracking files record the crop to one
 decimal, so playback's frame can be 1 px larger or smaller than the reference
 image (e.g. 423 vs 422 rows).
