@@ -1580,8 +1580,15 @@ opposite the tail base; direction of travel and the previous frame as
 fallbacks; no head/tail flips between frames; uncertain frames (curled,
 grooming, rearing) flagged for the Review tab. New columns go beside the
 existing position, so every current measure stays the same.
+**Points: DECIDED (user, 2026-11-10): nose, center, rear end.** Three points
+per frame, as in the comparison pictures (red nose, yellow center, blue rear
+end). The center is the existing tracked position, unchanged. The rear end is
+where the body ends and the tail begins. **The tail itself is not a point and
+is not reported** (no tail tip, no tail columns); the app only uses the tail
+internally to tell which end of the body is the rear. Call the points "nose",
+"center" and "rear end" in the app and the docs, not "head/tail".
 **Steps:** 1. feasibility test on the example videos (below); 2. decide the
-points, measures and columns with the user; 3. engine; 4. app (tracking
+measures and columns with the user (points decided, above); 3. engine; 4. app (tracking
 check, playback, Review); 5. validate against hand-clicked frames.
 
 **Feasibility test (2026-11-09; `prototypes/head_tail_feasibility.py`, sheets
