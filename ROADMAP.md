@@ -1646,6 +1646,15 @@ thinned by the body step), and when the animal is turned or hunched the
 points sit on the straight body axis, off to the side of the real nose or
 rear. To improve in the engine: take the nose as the outline point farthest
 along the axis, and the rear end as the point where the tail joins.
+**Planned: the same three points and accuracy check on plus maze videos
+(user, 2026-11-10).** Run nose, center and rear end on elevated plus maze
+videos and measure accuracy the same way (random frames, true points marked
+before seeing the program's, errors in cm, swaps, facing direction). The
+feasibility test got only about half the plus maze frames right, so this
+needs the plus maze work first: keep the silhouette to the drawn arms (walls
+and the reflection out), join pieces split by the bar across the arms, and
+cope with the smaller animal. Needed for head dips and stretches between arm
+and center. Not started.
 **Planned: looking at the object or past it (user, 2026-11-10).** Use the
 line from the center to the nose as the direction the animal faces, and
 judge each object against it: the animal is **looking at** an object when
