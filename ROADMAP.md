@@ -1622,6 +1622,19 @@ time has the center outside the 4 cm zone (reaching in). Some object 1
 "visits" are the tracked point sitting near the object with no animal in the
 picture (before placement); no silhouette is found there, which could flag
 them.
+**Planned: looking at the object or past it (user, 2026-11-10).** Use the
+line from the center to the nose as the direction the animal faces, and
+judge each object against it: the animal is **looking at** an object when
+that line, carried on past the nose, points at the object, and **looking
+past** it when it doesn't. This separates "beside the object, facing away"
+(the 17.2 s above) from attending to it, and it works at any distance, so it
+can add to the nose-distance rule rather than replace it. To decide with the
+user before building: what counts as pointing at the object (the line
+crossing the drawn circle, or within a set angle of the object's center, as
+a type box); whether a maximum distance applies; what is reported (time
+looking at each object, as a column per frame and as a filter on zone
+visits); and how it shows in playback (the line drawn on the frame). Not
+built; needs the nose point first (steps 2-3).
 **Found on the way (to fix on `main`):** tracking files record the crop to one
 decimal, so playback's frame can be 1 px larger or smaller than the reference
 image (e.g. 423 vs 422 rows).
