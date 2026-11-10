@@ -1563,6 +1563,27 @@ Tamer's version, so either program can change on its own schedule; Track
 Tamer reads every schema version it knows. Built on a feature branch
 (`capture-metadata`) after 1.0 and released as **1.1**.
 
+### 17. Head and tail tracking (branch `head-tail`, started 2026-11-09)
+Built on its own branch so `main` stays releasable. In `main`'s priority
+order, loading a video with a tracking file and conditioned place preference
+still come first; this branch is worked on alongside (user, 2026-11-09).
+**Purpose (user):** more complicated behaviors than the body center allows:
+- **Object location / recognition:** the nose near an object, not the body
+  center.
+- **Stretching:** the back legs stay in one region while the animal stretches
+  into another.
+- **Head dips** (plus maze).
+**Approach:** shape analysis of the animal's silhouette (no trained model, so
+the simple Mac and Windows install stays): full silhouette from the reference
+image; the thin tail found by erasing thin structures; head = the body end
+opposite the tail base; direction of travel and the previous frame as
+fallbacks; no head/tail flips between frames; uncertain frames (curled,
+grooming, rearing) flagged for the Review tab. New columns go beside the
+existing position, so every current measure stays the same.
+**Steps:** 1. feasibility test on the example videos (below); 2. decide the
+points, measures and columns with the user; 3. engine; 4. app (tracking
+check, playback, Review); 5. validate against hand-clicked frames.
+
 ## Open questions — RESOLVED (2026-10-09)
 1. **EPM anxiety index** — ✅ report all three: %open time & %open entries, the
    composite Anxiety Index, and the closed/open time ratio. (See §4.)
@@ -1626,7 +1647,8 @@ until the user asks; when they ask what's next, work from the top:
 4. **Load a video together with an existing tracking file** (entry below).
 5. **Conditioned place preference** (only its assay name is reserved so far,
    `docs/metadata_standard.md`; needs its specs decided).
-6. **Head and tail tracking** (requested 2026-11-09; not specified yet).
+6. **Head and tail tracking** (§17): in progress on the `head-tail` branch,
+   alongside the items above (user, 2026-11-09).
 7. **Freezing analysis** (§12): lowest on the list.
 
 Not ranked: reading the capture apps' info files (§16, after 1.0) and the
