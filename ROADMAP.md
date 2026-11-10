@@ -1629,6 +1629,23 @@ time has the center outside the 4 cm zone (reaching in). Some object 1
 "visits" are the tracked point sitting near the object with no animal in the
 picture (before placement); no silhouette is found there, which could flag
 them.
+**Accuracy check on the object trial (2026-11-10;
+`prototypes/head_tail_accuracy_make.py` then `..._score.py`, picture
+`Examples/head-tail test/accuracy.png`).** 36 random frames from row 400 on;
+the true nose tip and rear end (tail base) were marked by Claude on unmarked,
+gridded frames before seeing the program's points (not yet by the user). 8
+frames had no animal (before placement): the program rightly gave no points
+in 7, and gave false points in 1. Of the 28 with the animal: points given in
+all 28; nose and rear the right way round in 27 (the one swap: tail curled
+tight against the body). In those 27: nose error median 0.47 cm (96% within
+1 cm, worst 1.4); rear end error median 0.39 cm (78% within 1 cm, worst
+1.6); facing direction (center to nose) error median 2.8 degrees (93% within
+15, worst 22). Marking by eye is good to about 0.2-0.3 cm. Seen in the
+picture: the nose is usually placed a little short of the tip (the snout is
+thinned by the body step), and when the animal is turned or hunched the
+points sit on the straight body axis, off to the side of the real nose or
+rear. To improve in the engine: take the nose as the outline point farthest
+along the axis, and the rear end as the point where the tail joins.
 **Planned: looking at the object or past it (user, 2026-11-10).** Use the
 line from the center to the nose as the direction the animal faces, and
 judge each object against it: the animal is **looking at** an object when
