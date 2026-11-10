@@ -1584,6 +1584,36 @@ existing position, so every current measure stays the same.
 points, measures and columns with the user; 3. engine; 4. app (tracking
 check, playback, Review); 5. validate against hand-clicked frames.
 
+**Feasibility test (2026-11-09; `prototypes/head_tail_feasibility.py`, sheets
+of marked frames in `Examples/head-tail test/`).** Method: silhouette = the
+reference minus the frame, Otsu threshold in a window round the tracked
+point; body = silhouette opened with an ellipse about a third of
+sqrt(area); tail = thin pixels attached to the body; head = the body-axis
+end farther from the tail base; fallbacks: direction of travel, then the
+previous frame.
+
+| Video | Silhouette found | Tail seen | Marked frames right (by eye) | Body length |
+|---|---|---|---|---|
+| Object trial (open arena, 2,500 frames) | 90% (no animal in the first part) | 98% | about 37 of 39 | 56 px, 6.0 cm |
+| Open Field (3,000 frames) | 100% | 100% | about 38 of 40 | 50 px, 5.4 cm |
+| Plus maze (3,000 frames) | 99% | 76% | about half of 38 | 38 px, 5.2 cm |
+
+- **Open arenas work**: the white floor gives a clean silhouette and the tail
+  is nearly always visible. Misses are curled or grooming poses.
+- **The plus maze doesn't yet**: the silhouette merges with the dark walls
+  and the animal's reflection in them, a bar across the arms cuts the animal
+  in two, and the animal is smaller in the picture. Head dips need this
+  video type, so it needs its own work (e.g. limiting the silhouette to the
+  drawn arms, joining pieces split by the bar).
+- "Tail vs direction of travel" agreed in only 85-91% of frames, but the
+  sheets show the tail cue is the better one (animals turn and back up), so
+  travel stays a fallback only.
+- No hand-labeled frames yet: "right by eye" is from 40 sampled frames per
+  video, not a measured accuracy.
+**Found on the way (to fix on `main`):** tracking files record the crop to one
+decimal, so playback's frame can be 1 px larger or smaller than the reference
+image (e.g. 423 vs 422 rows).
+
 ## Open questions — RESOLVED (2026-10-09)
 1. **EPM anxiety index** — ✅ report all three: %open time & %open entries, the
    composite Anxiety Index, and the closed/open time ratio. (See §4.)
