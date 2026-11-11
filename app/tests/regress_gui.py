@@ -27,6 +27,13 @@ gui.show_warning = lambda p, t, m, **k: log.append(t)
 gui.show_info = lambda p, t, m, **k: log.append(t)
 gui.show_error = lambda p, t, m, **k: log.append(t)
 gui.ask_yes_no = lambda p, t, m, **k: (log.append(t), yesno.pop(0))[1]
+# A several-button question: a queued True picks the last button, False the
+# one before it, None closes the window (which cancels).
+def _choice(p, t, m, choices, default=None, **k):
+    log.append(t)
+    answer = yesno.pop(0) if yesno else True
+    return None if answer is None else choices[-1] if answer else choices[-2]
+gui.ask_choice = _choice
 class FakeDialog:
     def __init__(self, parent, test, overview, roles, preview=None, reason=""):
         dialogs.append([n for n, _ in overview]); self.result = None
@@ -37,6 +44,7 @@ setup_window.show_warning = gui.show_warning
 setup_window.ask_yes_no = gui.ask_yes_no
 import review_panel
 review_panel.show_info = gui.show_info
+review_panel.ask_yes_no = gui.ask_yes_no
 review_panel.show_warning = gui.show_warning
 gui.TrackTamerApp.wait_window = lambda self, w=None: None
 from samples import EPM as E, OF as O, require
@@ -188,10 +196,14 @@ check("Review tab: an ezTrack CSV without its video or crop says why it can't be
 app.nb.select(app.tab_summary); app.update()
 app.path_bg_var.set("None"); app.bg_var.set("None"); app._on_background()
 
-# Videos (ezTrack's short practice clip, if present): added as "Needs setup",
-# set up in the setup window, skipped by Analyze until tracked.
-CLIP = os.path.join(ROOT, "ezTrack", "PracticeVideos", "LocationTracking_Clip.mp4")
-if os.path.exists(CLIP):
+# Videos (the practice clip cut from the plus maze example, copied to a
+# temporary folder): added as "Needs setup", set up in the setup window,
+# skipped by Analyze until tracked.
+import shutil
+from samples import practice_clip
+CLIP = practice_clip()
+if CLIP is not None:
+    CLIP = shutil.copy(CLIP, os.path.join(tempfile.mkdtemp(), "Practice_Clip.mp4"))
     app.clear_files(); log.clear(); app.add_files([CLIP]); app.update()
     vals = app.file_tree.item("0", "values")
     check("video listed as Video / Needs setup", vals[1] == "Video" and vals[2] == "Needs setup")
@@ -223,7 +235,7 @@ if os.path.exists(CLIP):
           v.end_frame == 101 and app.config_data["session_minutes"]["Elevated Plus Maze"] == 5)
     app.config_data["session_minutes"]["Elevated Plus Maze"] = 0.001
     check("a tiny saved length falls back to the standard 5 min",
-          gui.default_session_minutes(app.config_data, "Elevated Plus Maze") == 5)
+          setup_window.default_session_minutes(app.config_data, "Elevated Plus Maze") == 5)
     app.config_data["session_minutes"]["Elevated Plus Maze"] = 5.0
     win.length_var.set("0.5"); win._apply_length()
     check("typed session length sets the end", v.end_frame == 100 + round(30 * v.info.fps))
@@ -356,7 +368,7 @@ if os.path.exists(CLIP):
     check("gap-filling section shown when videos are listed", bool(app.gaps_section.winfo_manager()))
 
     # Track (C7): a short session so it's quick; outputs land beside the clip
-    # (in the gitignored ezTrack folder) and are removed afterwards.
+    # (in its temporary folder) and are removed afterwards.
     import time
     outs = [os.path.splitext(CLIP)[0] + s for s in ("_LocationOutput.csv", "_reference.png")]
     for f in outs:
@@ -369,7 +381,18 @@ if os.path.exists(CLIP):
         app.update()
     check("Track button shown with the selected count",
           app.track_btn.winfo_manager() and app.track_btn.cget("text") == "Track (1)")
-    v.length_s = 4  # the reference no longer matches, so the run makes its own
+    v.length_s = 4  # a shorter session: the reference was made for the longer one
+    app._refresh(); app.update()
+    check("a changed session length unticks Reference and Tracking check (the reference is out of date)",
+          not ({"reference", "tracking"} & v.steps_done) and not v.ready_for(app.test_var.get()))
+    log.clear(); app.track(); app.update()
+    check("and Track won't take the video until those steps are redone",
+          "Some videos aren't set up yet" in log and app._runner is None)
+    v.build_reference(float(app.config_data["video_downsample"]),
+                      int(app.config_data["reference_frames"]))
+    v.steps_done |= {"reference", "tracking"}; app._refresh(); app.update()   # steps 3 and 4 redone
+    check("with the reference made again, the ticks stay",
+          {"reference", "tracking"} <= v.steps_done and v.ready_for(app.test_var.get()))
     app.fps_var.set("20"); log.clear(); yesno[:] = [True]
     app.track(); app.update()
     check("tracking settings lock while tracking", app._tracking_locked()
@@ -390,7 +413,12 @@ if os.path.exists(CLIP):
     log.clear(); yesno[:] = [True]; app.track(); app.update()
     check("already tracked: use existing tracking, no run",
           "Some videos are already tracked" in log and app._runner is None
-          and app.files[0].data is not None)
+          and app.files[0].data is d)     # already loaded: not read again or reset
+    kept_data = app.files[0].data
+    log.clear(); yesno[:] = [None]; app.track(); app.update()
+    check("already tracked: closing the question starts nothing and changes nothing",
+          "Some videos are already tracked" in log and app._runner is None
+          and app.files[0].data is kept_data)
     log.clear(); yesno[:] = [False]; app.track(); app.cancel_tracking(); pump()
     check("Track again, then Cancel: stopped, earlier tracking kept",
           "Tracking stopped" in log and app._runner is None
@@ -498,7 +526,7 @@ if os.path.exists(CLIP):
     app.clear_files()
     app.test_var.set("Elevated Plus Maze"); app._on_test_type()
 else:
-    print("skip video checks (ezTrack practice clip not present)")
+    print("skip video checks (the plus maze example video is missing)")
 
 app.show_about(); app.update()
 about = [w for w in app.winfo_children() if w.winfo_class() == "Toplevel"]
@@ -512,17 +540,32 @@ c = json.load(open(cfg))
 check("settings saved", c["test_type"] == "Elevated Plus Maze" and c["bin_seconds"] == 30
       and c["min_entry_frames"] == 5 and c["min_seconds_between_entries"] == 2)
 
-# The two install routes must install the same packages: requirements.txt
-# (.venv fallback) and environment.yml (Anaconda; python and pip are conda's
-# own tooling, not program packages).
-def _names(lines):
-    return {l.split("#")[0].strip().lstrip("- ").split("=")[0].split("<")[0].split(">")[0].strip().lower()
-            for l in lines if l.split("#")[0].strip()}
-reqs = _names(open(os.path.join(ROOT, "requirements.txt")))
+# The two install routes must install the same packages at the same versions:
+# requirements.txt (.venv fallback) and environment.yml (Anaconda; python and
+# pip are conda's own tooling, not program packages). Every one is pinned to
+# an exact version (user, 2026-11-11).
+def _pins(lines):
+    """{package: version} from "name==1.2" (pip) or "name=1.2" (conda) lines;
+    "" for a package with no exact version."""
+    out = {}
+    for l in lines:
+        l = l.split("#")[0].strip().lstrip("- ").strip()
+        if l:
+            name, _, version = l.replace("==", "=").partition("=")
+            out[name.strip().lower()] = version.strip()
+    return out
+reqs = _pins(open(os.path.join(ROOT, "requirements.txt")))
 env_lines = open(os.path.join(ROOT, "environment.yml")).read().split("dependencies:", 1)[1].splitlines()
-env = _names(l for l in env_lines if not l.strip().endswith(":")) - {"python", "pip"}
-check(f"requirements.txt and environment.yml list the same packages "
-      f"(only in requirements: {sorted(reqs - env)}, only in environment: {sorted(env - reqs)})",
-      reqs == env)
+env = _pins(l for l in env_lines if not l.strip().endswith(":"))
+env.pop("python", None); env.pop("pip", None)
+check(f"requirements.txt and environment.yml list the same packages at the same versions "
+      f"(differ: {sorted(set(reqs.items()) ^ set(env.items()))})", reqs == env)
+check(f"every package is pinned to an exact version (not pinned: "
+      f"{sorted(n for n, v in reqs.items() if not v)})", all(reqs.values()) and len(reqs) == 7)
+import importlib.metadata as _md
+installed = {n: _md.version(n) for n in reqs}
+check(f"this environment has exactly the pinned versions "
+      f"(differ: {sorted((n, v) for n, v in installed.items() if v != reqs[n])})",
+      installed == reqs)
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)

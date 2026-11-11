@@ -6,6 +6,8 @@ import os
 import tkinter as tk
 from tkinter import ttk
 
+from dialogs import bold_font
+
 from core.version import VERSION
 
 # The project folder (this file is in its "app" folder); LICENSE is there.
@@ -37,7 +39,7 @@ class AboutDialog(tk.Toplevel):
         self.resizable(True, True)
         frame = ttk.Frame(self, padding=16)
         frame.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(frame, text="Track Tamer", font=("TkDefaultFont", 14, "bold")).pack(
+        ttk.Label(frame, text="Track Tamer", font=bold_font(14)).pack(
             anchor="w")
         ttk.Label(frame, text=f"Version {VERSION}", foreground="gray").pack(
             anchor="w", pady=(0, 8))

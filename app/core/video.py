@@ -99,6 +99,7 @@ def crop_frame(frame: np.ndarray, crop) -> np.ndarray:
 
 _times_cache: dict = {}
 _TIME_MATCH_MS = 0.001  # the same frame gives the same timestamp either way
+MISSING_STAMPS_ALLOWED = 25  # frames a file may report beyond those it holds
 
 
 def frame_times(path: str) -> np.ndarray | None:
@@ -139,9 +140,18 @@ def _read_frame_times(path: str) -> np.ndarray | None:
     # Line the list up with the first frame that actually decodes.
     cap = cv2.VideoCapture(path)
     try:
+        reported = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         first = frame_at(cap, times) if cap.grab() else None
     finally:
         cap.release()
+    # A damaged video stops giving timestamps at the damage, so the list
+    # ends long before the video does (708 of 6,432 frames in one of the
+    # examples; whole videos list every frame). A short list must not be
+    # trusted: it would make every later frame look as if it didn't exist,
+    # and tracking would stop there without a word. Without a list, jumps
+    # are OpenCV's own, which carry on past the damage.
+    if len(times) < reported - max(MISSING_STAMPS_ALLOWED, 0.01 * reported):
+        return None
     return None if first is None else times[first:]
 
 

@@ -14,6 +14,7 @@ shapes are clipped to the frame when used.
 
 from __future__ import annotations
 
+import os
 import tkinter as tk
 from tkinter import ttk
 
@@ -29,7 +30,7 @@ from core.asr import analyzed_pixels, changed_pixels, find_info, parse_frames, s
 from core.objects import KINDS, PHASES
 from core.video_setup import (ASR_TEST, OBJECT_TEST, OUTLINE, REGION_TEMPLATES, effective_dsmpl,
                               steps_for)
-from dialogs import ask_yes_no, show_info, show_warning
+from dialogs import ask_yes_no, bold_font, fit_window, show_info, show_warning
 from tooltip import Tooltip
 
 STEP_TITLES = {
@@ -52,6 +53,7 @@ LENGTH_CHOICES = {
 }
 DEFAULT_MINUTES = {"Elevated Plus Maze": 5.0, "Open Field": 60.0, OBJECT_TEST: 10.0}
 MIN_LENGTH_S = 10    # a shorter trial is almost surely a slip: ask before using it
+MAX_REFERENCE_FRAMES = 500   # as the box's arrows allow; typing can't go past it either
 SCALE_GUIDE = {
     "Elevated Plus Maze": "Elevated Plus Maze: 75 cm across, from the end of one arm "
                           "to the end of the opposite arm.",
@@ -86,8 +88,33 @@ def default_session_minutes(config: dict, test: str) -> float:
 
 
 def _number(text: str) -> float:
-    """The first number in `text` ("60  (1 hour)" -> 60.0); ValueError if none."""
-    return float(str(text).strip().split()[0])
+    """The number typed in a box. A choice from a list may carry a note in
+    brackets ("60  (1 hour)" -> 60.0), and a decimal comma is read as a point
+    ("7,5" -> 7.5). Anything else after the number ("2 hours") is a
+    ValueError, rather than being quietly read as 2."""
+    text = str(text).strip()
+    number, _, note = text.partition("(")
+    number = number.strip()
+    if note and not text.endswith(")"):
+        raise ValueError(text)
+    if "," in number and "." not in number and number.count(",") == 1:
+        number = number.replace(",", ".")
+    return float(number)        # ValueError for "", "2 hours", "1 000"
+
+
+def default_length_s(config: dict, test: str, info) -> float:
+    """A video's standard session length for a test, in seconds: the whole
+    video for startle, else the test's remembered length."""
+    if test == ASR_TEST and info.fps:
+        return info.frame_count / info.fps
+    return 60 * default_session_minutes(config, test)
+
+
+def use_default_length(setup, config: dict, test: str) -> None:
+    """Give a video the test's standard length, marked as a standard one."""
+    setup.length_s = default_length_s(config, test, setup.info)
+    setup.length_default = test
+    setup.end_placed = None
 
 
 class FrameCanvas(tk.Canvas):
@@ -129,15 +156,28 @@ class FrameCanvas(tk.Canvas):
         for key, dx, dy in (("<Left>", -1, 0), ("<Right>", 1, 0),
                             ("<Up>", 0, -1), ("<Down>", 0, 1)):
             self.bind(key, lambda _e, dx=dx, dy=dy: self._pan_step(dx, dy))
-        self.bind("<Enter>", lambda _e: self.focus_set())
+        self.bind("<Enter>", self._take_focus)
+
+    def _take_focus(self, _e=None) -> None:
+        """The pointer came over the picture: take the keyboard (arrow keys
+        pan, and so on), unless the user is typing in a box."""
+        try:
+            typing = isinstance(self.focus_get(), (tk.Entry, ttk.Entry, tk.Text))
+        except KeyError:        # focus is in a pop-up list tkinter doesn't know
+            typing = True
+        if not typing:
+            self.focus_set()
 
     def show(self, array: np.ndarray | None, message: str = "No image") -> None:
-        if (array is None or self._array is None
-                or array.shape[:2] != self._array.shape[:2]):
+        refit = (array is None or self._array is None
+                 or array.shape[:2] != self._array.shape[:2])
+        if refit:
             self.zoom, self.center = 1.0, None   # a different image: start fitted
         self._array = array
         self.message = message
         self._render()
+        if refit:
+            self.on_view_change()   # e.g. the zoom label
 
     def reset_view(self) -> None:
         self.zoom, self.center = 1.0, None
@@ -251,8 +291,10 @@ class FrameCanvas(tk.Canvas):
         draw partly transparent shapes itself), just above the video image
         and below the outlines, points and labels."""
         self._fill_job = None
+        if not self.winfo_exists():
+            return
         super().delete("fills")
-        if not self._fills or not self.winfo_exists():
+        if not self._fills:
             return
         w, h = max(self.winfo_width(), 1), max(self.winfo_height(), 1)
         layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -284,7 +326,7 @@ class FrameCanvas(tk.Canvas):
         if label and xs:
             cx, cy = self.to_screen(*(label_at or (sum(xs) / len(xs), sum(ys) / len(ys))))
             self.create_text(cx, cy, text=label, fill="white", tags=tag,
-                             font=("TkDefaultFont", 11, "bold"))
+                             font=bold_font(11))
 
     def circle(self, x, y, r, color: str, tag: str = "overlay", label: str | None = None,
                fill: bool = True, dash=None, width: int = 2) -> None:
@@ -303,7 +345,7 @@ class FrameCanvas(tk.Canvas):
             self.create_oval(sx - 3, sy - 3, sx + 3, sy + 3, outline=color, fill=color, tags=tag)
         if label:
             self.create_text(sx, sy - sr - 10, text=label, fill="white", tags=tag,
-                             font=("TkDefaultFont", 11, "bold"))
+                             font=bold_font(11))
 
     def rectangle(self, x0, y0, x1, y1, color: str, tag: str = "overlay",
                   dash=(6, 3)) -> None:
@@ -334,7 +376,7 @@ class SetupWindow(tk.Toplevel):
         self.index = index
         self.step = "trim"
         self.title("Set up videos")
-        self.geometry("1040x760")
+        fit_window(self, 1040, 760)
         self.minsize(860, 600)
         self.transient(app)
         self._scrub_job = None
@@ -343,9 +385,16 @@ class SetupWindow(tk.Toplevel):
         self._drag = None               # (what, index) of a point being dragged
         self._press = None              # a press on a region point: drag or click?
         self._extra_names: list[str] = []   # added regions not drawn yet
+        self._current_region = None     # the region / object picked in step 5
+        self._current_object = None
+        self._asr_trace = None
 
-        self._build()
-        self._show_video()
+        try:
+            self._build()
+            self._show_video()
+        except Exception:
+            self.destroy()      # don't leave a half-built window behind
+            raise
         self.protocol("WM_DELETE_WINDOW", self._close)
 
     # ---------------------------------------------------------------- layout
@@ -354,7 +403,7 @@ class SetupWindow(tk.Toplevel):
         top.pack(side=tk.TOP, fill=tk.X)
         self.prev_btn = ttk.Button(top, text="◀", width=3, command=lambda: self._move(-1))
         self.prev_btn.pack(side=tk.LEFT)
-        self.video_label = ttk.Label(top, font=("TkDefaultFont", 13, "bold"))
+        self.video_label = ttk.Label(top, font=bold_font(13))
         self.video_label.pack(side=tk.LEFT, padx=8)
         self.count_label = ttk.Label(top, foreground="gray")
         self.count_label.pack(side=tk.LEFT)
@@ -516,10 +565,9 @@ class SetupWindow(tk.Toplevel):
     # ------------------------------------------------------------ navigation
     def _show_video(self) -> None:
         s = self.setup
-        if self._test() == ASR_TEST and s.info.fps and "trim" not in s.steps_done:
-            s.length_s = s.info.frame_count / s.info.fps    # the whole video by default
-        if s.length_s is None:
-            s.length_s = self._default_minutes() * 60
+        # A standard length follows the test type; one the user set is kept.
+        if s.length_s is None or (s.length_default and s.length_default != self._test()):
+            use_default_length(s, self.app.config_data, self._test())
         self.video_label.configure(text=self.entry.label)
         self.count_label.configure(text=f"video {self.index + 1} of {len(self.entries)}")
         self.prev_btn.configure(state="normal" if self.index > 0 else "disabled")
@@ -536,7 +584,19 @@ class SetupWindow(tk.Toplevel):
         self.info_label.configure(text=text)
         self._go(self.step)
 
+    def _keep_pending_shape(self) -> None:
+        """A shape with 3 or more points that hasn't been closed is closed
+        and kept (as Next does) rather than thrown away, when the step, the
+        video or the picked region changes or the window closes."""
+        if len(self._points) < 3:
+            return
+        if self.step == "exclusions":
+            self._finish_shape()
+        elif self.step == "regions" and not self._objects_test():
+            self._close_region()
+
     def _move(self, delta: int, step: str | None = None) -> None:
+        self._keep_pending_shape()
         self._points = []
         self.index = max(0, min(len(self.entries) - 1, self.index + delta))
         if step:
@@ -550,14 +610,26 @@ class SetupWindow(tk.Toplevel):
             self._build_step_buttons()   # the test changed
         if step not in steps:
             step = "trim"
+        if step != self.step and self.step in steps:
+            self._keep_pending_shape()
         self._points = []
         self.step = step
         self._clear_controls()
-        {"trim": self._step_trim, "exclusions": self._step_exclusions,
-         "reference": self._step_reference, "tracking": self._step_tracking,
-         "regions": (self._step_objects if self._objects_test() else self._step_regions),
-         "scale": self._step_scale, "threshold": self._step_threshold,
-         "stimuli": self._step_stimuli}[step]()
+        try:
+            {"trim": self._step_trim, "exclusions": self._step_exclusions,
+             "reference": self._step_reference, "tracking": self._step_tracking,
+             "regions": (self._step_objects if self._objects_test() else self._step_regions),
+             "scale": self._step_scale, "threshold": self._step_threshold,
+             "stimuli": self._step_stimuli}[step]()
+        except (ValueError, OSError, cv2.error) as exc:
+            # The video can't be opened or read (moved, its drive unplugged):
+            # say so instead of leaving a half-built step.
+            self.canvas.redraw_overlay = lambda: None
+            self.canvas.show(None, "The video couldn't be read")
+            show_warning(self, "The video couldn't be read",
+                         f"{os.path.basename(self.setup.path)} couldn't be read, so this "
+                         f"step can't be shown.\n\n{exc}\n\nIf the file was moved or its "
+                         "drive unplugged, put it back and click the step again.")
         k = steps.index(step)
         self.back_btn.configure(state="normal" if k > 0 else "disabled")
         if k < len(steps) - 1:
@@ -573,6 +645,9 @@ class SetupWindow(tk.Toplevel):
         """Back always works. Next checks the current step first: it either
         moves on or says what's missing (never a dead end)."""
         steps = self._steps()
+        if self.step not in steps:      # the test type changed under the window
+            self._go("trim")
+            return
         k = steps.index(self.step)
         if delta < 0:
             self._go(steps[max(0, k - 1)])
@@ -671,13 +746,28 @@ class SetupWindow(tk.Toplevel):
     def _copy_previous(self) -> None:
         if self.index == 0:
             return
-        self.setup.copy_from(self.entries[self.index - 1].video)
+        other = self.entries[self.index - 1].video
+        if (self.setup.has_drawn_work() or self._points) and not ask_yes_no(
+                self, "Replace what's drawn for this video?",
+                "Replace what's drawn for this video? Its crop, shapes, regions, "
+                "objects and scale will be replaced by the previous video's, and "
+                "that can't be undone.", yes="Replace", no="Cancel"):
+            return
+        self._points = []
+        same = self.setup.same_size(other)
+        self.setup.copy_from(other)
         self._go("trim")
         self.app._refresh()
+        if not same:
+            show_info(self, "Only the session length was copied",
+                      "Only the session length and trial details were copied. The "
+                      f"previous video is {other.info.width} × {other.info.height} px and "
+                      f"this one is {self.setup.info.width} × {self.setup.info.height} px, "
+                      "so its crop, shapes, regions and scale wouldn't line up here.")
 
     def _close(self) -> None:
-        if self._scrub_job is not None:
-            self.after_cancel(self._scrub_job)
+        self._keep_pending_shape()
+        self._clear_controls()      # also drops the links to the main window's boxes
         self.app._refresh()
         self.destroy()
 
@@ -738,11 +828,6 @@ class SetupWindow(tk.Toplevel):
         self._on_load()
 
     # --------------------------------------------------- step 1: trim + crop
-    def _default_minutes(self) -> float:
-        """The test's remembered session length (its standard one if the
-        remembered value is too short to be a real session)."""
-        return default_session_minutes(self.app.config_data, self._test())
-
     def _show_length(self, minutes: float) -> None:
         """Put a length in the box, remembering exactly what was shown so a
         rounded display is never read back as a new length."""
@@ -811,8 +896,10 @@ class SetupWindow(tk.Toplevel):
     def _update_trim_text(self) -> None:
         s = self.setup
         self.start_text.configure(text=f"Start: frame {s.start:,} ({self._secs(s.start)})")
-        end = s.end_frame
-        text = f"Ends at frame {end:,} ({self._secs(end)})"
+        end = s.end_frame      # the first frame after the trial
+        # Shown as the trial's last frame: the one on screen when "Set end
+        # here" was clicked (user, 2026-11-11).
+        text = f"Last frame {max(end - 1, 0):,} (ends at {self._secs(end)})"
         color = ""
         if s.video_shorter_than_length():
             mins = (end - s.start) / s.info.fps / 60
@@ -844,6 +931,8 @@ class SetupWindow(tk.Toplevel):
                 return False
         s = self.setup
         s.length_s = minutes * 60
+        s.length_default = ""       # the user's own length: never re-defaulted
+        s.end_placed = None         # a typed length follows the start again
         if minutes * 60 >= MIN_LENGTH_S:  # only real session lengths are remembered
             self.app.config_data["session_minutes"][self._test()] = minutes
         self._show_length(minutes)
@@ -858,13 +947,37 @@ class SetupWindow(tk.Toplevel):
             show_warning(self, "Start is at the end",
                          "The start has to come before the last frame of the video.")
             return
-        if s.length_s is None and f >= s.end_frame:
+        if (s.length_s is None or s.end_placed is not None) and f >= s.end_frame - 1:
             show_warning(self, "Start is after the end",
                          "The start has to come before the end. Move the end first.")
             return
-        s.start = f
+        if s.end_placed is not None and s.info.fps:
+            # The end was placed on a frame: it stays there, and the session
+            # length becomes whatever lies between the new start and it.
+            length = (s.end_placed - f) / s.info.fps
+            if not self._confirm_past_session(length):
+                return
+            s.start, s.length_s = f, length
+            self._show_length(length / 60)
+        else:
+            s.start = f
         self._update_trim_text()
         self.app._refresh()
+
+    def _confirm_past_session(self, length_s: float) -> bool:
+        """An end that makes the session longer than the test's session
+        length (the time selected for the task) is asked about first (user,
+        2026-11-11). True to go ahead."""
+        s, test = self.setup, self._test()
+        standard = default_length_s(self.app.config_data, test, s.info)
+        if not s.info.fps or length_s <= standard + 0.5 / s.info.fps:
+            return True
+        return ask_yes_no(
+            self, "The end is past the session length",
+            f"The end is past the session length. The {test} session length is "
+            f"{standard / 60:g} min, and this would make the session "
+            f"{length_s / 60:.2f} min ({length_s - standard:.1f} s longer). "
+            "Use it anyway?", yes="Use Anyway", no="Cancel")
 
     def _set_end(self) -> None:
         s = self.setup
@@ -881,7 +994,11 @@ class SetupWindow(tk.Toplevel):
                     "start. To set the end, scrub to where the trial ends first, then "
                     "click Set end here. Use this end anyway?"):
                 return
+            if not self._confirm_past_session(length):
+                return
             s.length_s = length
+            s.length_default = ""
+            s.end_placed = f
             self._show_length(length / 60)
         else:
             s.length_s, s.end = None, f
@@ -889,6 +1006,9 @@ class SetupWindow(tk.Toplevel):
         self.app._refresh()
 
     def _set_dsmpl(self) -> None:
+        if self._locked():      # shared by every video; fixed once tracking starts
+            self.ds_var.set(f"{float(self.app.config_data['video_downsample']):g}")
+            return
         self.app.config_data["video_downsample"] = float(self.ds_var.get())
         self.app._refresh()
 
@@ -1018,6 +1138,12 @@ class SetupWindow(tk.Toplevel):
         self._redraw_shapes()
 
     def _clear_shapes(self) -> None:
+        if self.setup.exclusions and not ask_yes_no(
+                self, "Remove every shape?",
+                f"Remove every shape? All {len(self.setup.exclusions)} shapes drawn for "
+                "this video will be removed, and that can't be undone.",
+                yes="Remove All", no="Cancel"):
+            return
         self._points = []
         self.setup.exclusions.clear()
         self._redraw_shapes()
@@ -1067,11 +1193,13 @@ class SetupWindow(tk.Toplevel):
     def _make_reference(self) -> None:
         try:
             frames = int(float(self.ref_var.get()))
-            if frames < 3:
+            if not 3 <= frames <= MAX_REFERENCE_FRAMES:
                 raise ValueError
         except ValueError:
             show_warning(self, "Invalid frame count",
-                         "Frames to use must be a whole number, 3 or more.")
+                         "Frames to use must be a whole number from 3 to "
+                         f"{MAX_REFERENCE_FRAMES}. (Each frame is held in memory at "
+                         "once, so a very large number can run the computer out of it.)")
             return
         if not self._locked():
             self.app.config_data["reference_frames"] = frames
@@ -1347,6 +1475,7 @@ class SetupWindow(tk.Toplevel):
     def _region_selected(self) -> None:
         sel = self.region_list.selection()
         if sel and sel[0] != self._current_region:
+            self._keep_pending_shape()
             self._points = []
             self._current_region = sel[0]
             self._redraw_regions()
@@ -1396,9 +1525,11 @@ class SetupWindow(tk.Toplevel):
         row.pack(fill=tk.X, pady=(8, 0))
         ttk.Label(row, text="Intensity threshold (0-255):").pack(side=tk.LEFT)
         state = "disabled" if self._locked() else "normal"
-        self.threshold_scale = ttk.Scale(row, from_=0, to=255, orient=tk.HORIZONTAL,
-                                         command=self._threshold_slid)
+        # Placed before the slider reports moves, so showing the step can't
+        # round or reset the threshold; only the user moving it changes it.
+        self.threshold_scale = ttk.Scale(row, from_=0, to=255, orient=tk.HORIZONTAL)
         self.threshold_scale.set(self._threshold_value() or 0)
+        self.threshold_scale.configure(command=self._threshold_slid)
         self.threshold_scale.state([state] if state == "disabled" else ["!disabled"])
         self.threshold_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
         ttk.Entry(row, textvariable=self.app.asr_threshold_var, width=5,
@@ -1417,7 +1548,10 @@ class SetupWindow(tk.Toplevel):
         value = self._threshold_value()
         if value is not None and self.step == "threshold" and self.winfo_exists():
             if round(float(self.threshold_scale.get())) != round(value):
+                # move the slider to the typed value without it writing back
+                self.threshold_scale.configure(command="")
                 self.threshold_scale.set(value)
+                self.threshold_scale.configure(command=self._threshold_slid)
             self._draw_threshold()
 
     def _load_threshold_frame(self) -> None:
@@ -1722,7 +1856,10 @@ class SetupWindow(tk.Toplevel):
         if not self._drag:
             return
         what, name = self._drag[:2]
+        before = self._drag[4] if len(self._drag) > 4 else None   # as it was at the press
         self._drag = None
+        if what != "new" and self.setup.objects.get(name) == before:
+            return      # a click on an object that moved nothing
         if what == "new":
             r = self.setup.objects.get(name, (0, 0, 0))[2]
             if r * effective_dsmpl(self._dsmpl()) * self.canvas.scale < 4:
@@ -1756,7 +1893,7 @@ class SetupWindow(tk.Toplevel):
             sx, sy = self.canvas.to_screen(ix, iy)   # label above the outer ring
             self.canvas.create_text(sx, sy - (ir + (zone or 0)) * self.canvas.scale - 10,
                                     text=f"{name} ({kind})", fill="white", tags="overlay",
-                                    font=("TkDefaultFont", 11, "bold"))
+                                    font=bold_font(11))
             if name == self._current_object:
                 self.canvas.circle(ix, iy, ir + 3 / max(self.canvas.scale, 1e-6), "#ffffff",
                                    fill=False, width=1)
@@ -1921,7 +2058,8 @@ class SetupWindow(tk.Toplevel):
     def _redraw_region(self) -> None:
         name = self._current_region
         if name:
-            self.setup.regions.pop(name, None)
+            if self.setup.regions.pop(name, None) is not None:
+                self.setup.steps_done.discard("regions")
             self._points = []
             self._fill_region_list(select=name)
             self._redraw_regions()
@@ -1931,7 +2069,8 @@ class SetupWindow(tk.Toplevel):
         name = self._current_region
         if not name:
             return
-        self.setup.regions.pop(name, None)
+        if self.setup.regions.pop(name, None) is not None:
+            self.setup.steps_done.discard("regions")
         if name in self._extra_names:
             self._extra_names.remove(name)
         self._points = []
@@ -1951,6 +2090,8 @@ class SetupWindow(tk.Toplevel):
             show_info(self, "Draw it first", f"Draw {old} before renaming it.")
             return
         self.setup.regions = {(new if k == old else k): v for k, v in self.setup.regions.items()}
+        self._extra_names = [new if n == old else n for n in self._extra_names]
+        self.setup.steps_done.discard("regions")
         self._current_region = new
         self._fill_region_list(select=new)
         self._redraw_regions()

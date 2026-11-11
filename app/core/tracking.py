@@ -29,10 +29,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-import cv2
 import numpy as np
 import pandas as pd
 
+from .safe_write import image_bytes, replacing
 from .video import Prep, VideoReader, polygon_mask
 
 METHODS = ("dark", "light", "abs")  # animal darker / lighter / either
@@ -149,6 +149,11 @@ class TrackResult:
     df: pd.DataFrame | None   # None if cancelled
     unreadable: int           # frames kept as blank rows
     cancelled: bool = False
+    # Frames asked for that aren't in `df` at all: the video couldn't be
+    # read from some point to the end of the session, so those rows were
+    # dropped (a few at the very end of a file is normal; many is a damaged
+    # or shorter video, and the session is shorter than asked for).
+    missing_at_end: int = 0
 
 
 def track_video(path: str, reference: np.ndarray, params: TrackingParams,
@@ -191,7 +196,7 @@ def track_video(path: str, reference: np.ndarray, params: TrackingParams,
         "Distance_px": distance,
         "Frame_Unreadable": bad,
     })
-    return TrackResult(df, int(sum(bad)))
+    return TrackResult(df, int(sum(bad)), missing_at_end=max(total - len(x), 0))
 
 
 def region_columns(df: pd.DataFrame, regions: list[Region],
@@ -258,7 +263,7 @@ def assemble_output(video_path: str, tracked: pd.DataFrame, params: TrackingPara
     df["Frame_Unreadable"] = tracked["Frame_Unreadable"]
     df["Method"] = params.method
     df["Downsample"] = float(prep.dsmpl)
-    df["Crop"] = ",".join(str(round(v, 1)) for v in prep.crop) if prep.crop else ""
+    df["Crop"] = crop_text(prep.crop)
     df["Reference_Frames"] = int(reference_frames)
     df["Exclusion_Shapes"] = int(exclusion_count)
     df["Scale_px"] = scale.px if scale else np.nan
@@ -270,6 +275,13 @@ def assemble_output(video_path: str, tracked: pd.DataFrame, params: TrackingPara
     return df
 
 
+def crop_text(crop) -> str:
+    """The crop as the tracking file records it: the four numbers exactly as
+    used (`repr`, so reading them back gives the same crop to the pixel;
+    rounding them could shift playback by a pixel)."""
+    return ",".join(repr(float(v)) for v in crop) if crop else ""
+
+
 def output_paths(video_path: str) -> dict[str, str]:
     base = os.path.splitext(video_path)[0]
     return {"csv": base + "_LocationOutput.csv", "reference": base + "_reference.png"}
@@ -277,8 +289,17 @@ def output_paths(video_path: str) -> dict[str, str]:
 
 def save_outputs(video_path: str, df: pd.DataFrame, reference: np.ndarray) -> dict[str, str]:
     """Write `<name>_LocationOutput.csv` and `<name>_reference.png` next to
-    the video, overwriting earlier ones."""
+    the video, in place of earlier ones. Both are written in full before
+    either earlier file is touched, so a failed save (a full disk, the
+    tracking file open in Excel on Windows) leaves the earlier pair as it
+    was, still matching each other."""
     paths = output_paths(video_path)
-    df.to_csv(paths["csv"], index=False)
-    cv2.imwrite(paths["reference"], np.clip(reference, 0, 255).astype(np.uint8))
+    image = image_bytes(np.clip(reference, 0, 255).astype(np.uint8), ".png")
+    # The tracking file is put in place first (it's the one likely to be
+    # open elsewhere); if that fails the reference isn't replaced either.
+    with replacing(paths["reference"]) as ref_tmp:
+        with open(ref_tmp, "wb") as f:
+            f.write(image)
+        with replacing(paths["csv"]) as csv_tmp:
+            df.to_csv(csv_tmp, index=False)
     return paths

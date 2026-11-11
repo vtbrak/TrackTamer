@@ -34,9 +34,10 @@ import numpy as np
 
 from core.objects import (KINDS, PHASES, Bout, distance_px, file_objects, load_scoring,
                           object_at, save_scoring, scoring_path, trial_info,
+                          unreadable_copy_path,
                           update_trial_info, zone_visits)
 from core.playback import FrameSource, open_playback, tracked_video_path, write_tracked_video
-from dialogs import show_info, show_warning
+from dialogs import ask_yes_no, bold_font, fit_window, show_info, show_warning
 from setup_window import FrameCanvas
 from tooltip import Tooltip
 
@@ -119,14 +120,18 @@ class ObjectScorer:
         obj, start = self.pending
         self.pending = None
         bout = self.scoring.add_bout(obj, start, row)
+        # A visit with an interaction is no longer "no interaction".
+        for v in self.visits:
+            if v["object"] == obj and v["row"] <= bout.end and bout.start <= v["end"]:
+                self.scoring.no_interaction -= self.scoring.marks_in(v)
         return bout, self._changed()
 
     def toggle_none(self, visit: dict) -> str | None:
-        key = (visit["object"], visit["row"])
-        if key in self.scoring.no_interaction:
-            self.scoring.no_interaction.discard(key)
+        marks = self.scoring.marks_in(visit)
+        if marks:
+            self.scoring.no_interaction -= marks
         else:
-            self.scoring.no_interaction.add(key)
+            self.scoring.no_interaction.add((visit["object"], visit["row"]))
         return self._changed()
 
     def delete(self, item) -> str | None:
@@ -192,6 +197,16 @@ class StartleTrials:
         return f"trial {t['Trial']} ({t['Type']}): {offset:+.0f} ms from the stimulus{place}"
 
 
+def _no_button_focus(widget) -> None:
+    """Stop every button under `widget` taking the keyboard focus when
+    clicked, so the window's keys (Space, S, E, N) keep working after a
+    click and Space can't re-press the last button (it would on Windows)."""
+    for child in widget.winfo_children():
+        if isinstance(child, (ttk.Button, ttk.Checkbutton)):
+            child.configure(takefocus=False)
+        _no_button_focus(child)
+
+
 class PlaybackWindow(tk.Toplevel):
     """A tracked file's video with its tracking drawn on, in its own window."""
 
@@ -203,10 +218,14 @@ class PlaybackWindow(tk.Toplevel):
         self.startle = startle
         self.trial: int | None = None     # the startle trial being viewed
         self.on_visit = on_visit or (lambda index: None)   # Review list follows
-        self.source = FrameSource(pb)
+        try:
+            self.source = FrameSource(pb)
+        except Exception:
+            self.destroy()      # don't leave a blank window behind
+            raise
         self._labels, self._outside = labels, outside
         self.title(f"Playback: {title}")
-        self.geometry("960x900" if scorer else "960x800" if startle else "960x760")
+        fit_window(self, 960, 900 if scorer else 800 if startle else 760)
         self.minsize(600, 480)
         self.row = 0
         self.playing = False
@@ -214,9 +233,15 @@ class PlaybackWindow(tk.Toplevel):
         self._clock = None
         self._save = None
         self._setting = False
-        self._build()
-        self.protocol("WM_DELETE_WINDOW", self.close)
-        self.show(0)
+        try:
+            self._build()
+            _no_button_focus(self)
+            self.protocol("WM_DELETE_WINDOW", self.close)
+            self.show(0)
+        except Exception:
+            self.source.close()
+            self.destroy()
+            raise
 
     # ------------------------------------------------------------------ UI
     def _build(self) -> None:
@@ -240,7 +265,10 @@ class PlaybackWindow(tk.Toplevel):
         self.canvas = FrameCanvas(self)
         self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.canvas.redraw_overlay = self._overlay
-        self.canvas.bind("<space>", lambda _e: self.toggle())
+        # Space plays and pauses wherever the focus is. (On Windows a clicked
+        # button keeps the focus and Space would press it again, so the
+        # buttons here never take it: see the end of __init__.)
+        self.bind("<space>", lambda e: self._key(e, self.toggle))
         for text, cmd, tip in (
                 ("◀◀", lambda: self.skip(-SKIP_SECONDS), "Back 10 seconds"),
                 ("◀", lambda: self.step(-1), "Back 1 frame")):
@@ -329,7 +357,7 @@ class PlaybackWindow(tk.Toplevel):
                 c.create_oval(sx - z, sy - z, sx + z, sy + z, outline=ZONE_COLOR,
                               dash=(6, 4), width=2 if o.name == here else 1)
                 c.create_text(sx, sy - z - 10, text=f"{o.name} ({o.kind.lower()})",
-                              fill="white", font=("TkDefaultFont", 11, "bold"))
+                              fill="white", font=bold_font(11))
         if self.startle is not None and self.trial is not None:
             words = []
             if row == self.startle.stimulus_row(self.trial):
@@ -338,7 +366,7 @@ class PlaybackWindow(tk.Toplevel):
                 words.append(("STARTLE PEAK", PEAK_COLOR))
             for k, (text, color) in enumerate(words):
                 c.create_text(c.winfo_width() / 2, 24 + 28 * k, text=text, fill=color,
-                              font=("TkDefaultFont", 18, "bold"))
+                              font=bold_font(18))
         trail = self._trail_frames()
         if trail:
             pts = pb.trail(row, trail)
@@ -596,6 +624,11 @@ class PlaybackWindow(tk.Toplevel):
         self.start_btn.pack(side=tk.LEFT)
         self.end_btn = ttk.Button(row, text="End interaction (E)", command=self.mark_end)
         self.end_btn.pack(side=tk.LEFT, padx=(6, 0))
+        self.cancel_btn = ttk.Button(row, text="Cancel start (Esc)", command=self.cancel_start,
+                                     state="disabled")
+        self.cancel_btn.pack(side=tk.LEFT, padx=(6, 0))
+        Tooltip(self.cancel_btn, "Drop an interaction that was started by mistake. Nothing "
+                                 "is logged. (Only while an interaction is open.)")
         self.none_btn = ttk.Button(row, text="No interaction (N)", command=self.mark_none)
         self.none_btn.pack(side=tk.LEFT, padx=(6, 0))
         nav = ttk.Frame(box)
@@ -640,6 +673,7 @@ class PlaybackWindow(tk.Toplevel):
         self.totals_text.pack(anchor="n", pady=(8, 0))
         self.bind("<KeyPress-bracketright>", lambda e: self._key(e, lambda: self.go_visit(1)))
         self.bind("<KeyPress-bracketleft>", lambda e: self._key(e, lambda: self.go_visit(-1)))
+        self.bind("<Escape>", lambda e: self._key(e, self.cancel_start))
         for key, fn in (("s", self.mark_start), ("e", self.mark_end), ("n", self.mark_none)):
             for k in (key, key.upper()):
                 self.bind(f"<KeyPress-{k}>", lambda e, fn=fn: self._key(e, fn))
@@ -649,7 +683,10 @@ class PlaybackWindow(tk.Toplevel):
         self._fill_logged()
 
     def _key(self, e, fn) -> None:
-        if isinstance(e.widget, (tk.Entry, ttk.Entry)):
+        # Not while typing in a box. (A dropdown is an Entry too, but these
+        # are pick-only, so the keys work with one focused.)
+        w = e.widget
+        if isinstance(w, (tk.Entry, ttk.Entry)) and str(w.cget("state")) != "readonly":
             return
         fn()
 
@@ -684,9 +721,24 @@ class PlaybackWindow(tk.Toplevel):
             return
         self.pause()
         sc.start(obj, self.row)
+        self.cancel_btn.configure(state="normal")
         self._say(f"Interaction with {obj} started at frame {self.row + 1:,}. Step to the "
                   "frame it ends on and click End interaction (E).")
         self._redraw()
+
+    def cancel_start(self) -> None:
+        """Drop the open interaction without logging anything (a Start
+        pressed by mistake; user, 2026-11-11)."""
+        sc = self.scorer
+        if not sc.pending:
+            return
+        obj, start = sc.pending
+        sc.pending = None
+        self.cancel_btn.configure(state="disabled")
+        self._say(f"The start at frame {start + 1:,} ({obj}) was cancelled. Nothing was "
+                  "logged.")
+        self._redraw()
+        self._update_info()
 
     def mark_end(self) -> None:
         sc = self.scorer
@@ -696,6 +748,7 @@ class PlaybackWindow(tk.Toplevel):
             return
         self.pause()
         bout, error = sc.end(self.row)
+        self.cancel_btn.configure(state="disabled")
         self._say(f"Logged: {bout.object}, frames {bout.start + 1:,}–{bout.end + 1:,} "
                   f"({secs(bout.frames(), sc.fps):g} s).", error)
         self._fill_logged()
@@ -868,6 +921,7 @@ class ReviewPanel(ttk.Frame):
         super().__init__(parent)
         self.on_trial_info = on_trial_info or (lambda data, kinds, day, phase: None)
         self.trial_dialog: TrialInfoDialog | None = None
+        self._made_with = None      # the roles, entry rule and frame rate the list was made with
         self.on_cutoff = on_cutoff or (lambda value: None)
         self.on_scored = on_scored or (lambda data: None)
         self.scorer: ObjectScorer | None = None
@@ -895,6 +949,7 @@ class ReviewPanel(ttk.Frame):
         Tooltip(self.trial_btn, "Change each object's type (familiar, novel or moved), the "
                                 "trial day and the phase, without tracking again.")
         self.cutoff_var = tk.StringVar()
+        self._cutoff_value = 1.0    # the last valid cutoff (set by load)
         cutoff = ttk.Entry(head, textvariable=self.cutoff_var, width=5)
         cutoff.pack(side=tk.RIGHT)
         cutoff.bind("<Return>", lambda _e: self._apply_cutoff())
@@ -907,7 +962,7 @@ class ReviewPanel(ttk.Frame):
                         "so it's flagged for review. Brief ones are usually jumps or head "
                         "dips. Saved per test.")
         self.heading = ttk.Label(self.body, text="Points to review",
-                                 font=("TkDefaultFont", 0, "bold"))
+                                 font=bold_font())
         self.heading.pack(side=tk.TOP, anchor="w", pady=(10, 0))
         self.summary = ttk.Label(self.body, foreground="gray", anchor=tk.W, justify=tk.LEFT)
         self.summary.pack(side=tk.TOP, fill=tk.X, pady=(2, 6))
@@ -932,6 +987,25 @@ class ReviewPanel(ttk.Frame):
         wrap.columnconfigure(0, weight=1)
         self.tree.bind("<<TreeviewSelect>>", self._on_event)
 
+    def saving_video(self) -> bool:
+        """True while the playback window is writing a tracked video."""
+        return (self.window is not None and self.window.winfo_exists()
+                and self.window._save is not None)
+
+    def release(self, data=None) -> bool:
+        """Before the Review tab lets go of its file (another file selected,
+        the list cleared, the app closed): if a tracked video is still being
+        saved, ask before stopping it (user, 2026-11-11). True if the file
+        can be let go; False to keep it, and the save, as they are. Showing
+        the same file again (`data`) never asks."""
+        if not self.saving_video() or (data is not None and data is self._data):
+            return True
+        return ask_yes_no(
+            self, "A video is still being saved",
+            "A video is still being saved. Stop saving it? What has been written so "
+            "far is discarded (an earlier saved video is kept), and it would need "
+            "saving again.", yes="Stop Saving", no="Keep Saving")
+
     def show_message(self, text: str) -> None:
         """Show a note instead of the list (no file, not tracked, no video)."""
         self.unload()
@@ -941,13 +1015,17 @@ class ReviewPanel(ttk.Frame):
 
     def load(self, data, video_hint, roles: dict, cutoff: float, title: str = "",
              zone_cm: float | None = None, min_frames: int = 1, trials=None,
-             startle_ms: float = 200.0, baseline_ms: float = 200.0) -> None:
+             startle_ms: float = 200.0, baseline_ms: float = 200.0,
+             fps: float | None = None) -> None:
         """List this tracking file's points to review (the video opens on
         request). Says why instead if the video can't be matched to it.
         With `zone_cm` (Object Recognition), the list is the zone visits to
         score instead. With `trials` (Acoustic Startle), it's the startles to
-        jump to."""
+        jump to. `fps` is the frame rate the analysis uses (the Frame rate
+        box): every length and time worked out here uses it, so the list and
+        the scoring file agree with the results. Without it, the video's own."""
         self.cutoff_var.set(f"{cutoff:g}")
+        self._cutoff_value = float(cutoff)
         objects_mode = zone_cm is not None
         startle_mode = trials is not None
         if startle_mode and data is self._data and self.pb is not None and self.startle:
@@ -962,8 +1040,9 @@ class ReviewPanel(ttk.Frame):
                               "nothing to score. Draw the objects in Set up videos… "
                               "(step 5) and track the video again.")
             return
+        made_with = (tuple(sorted(roles.items())), int(min_frames), fps)
         if (data is self._data and self.pb is not None and not startle_mode and not self.startle
-                and objects_mode == bool(self.scorer)):
+                and objects_mode == bool(self.scorer) and made_with == self._made_with):
             if self.scorer is not None:
                 self.zone_changed(zone_cm)
             else:
@@ -976,11 +1055,21 @@ class ReviewPanel(ttk.Frame):
             self.show_message(f"This file's video can't be shown.\n\n{exc}")
             return
         self.pb, self._data, self._title = pb, data, title or os.path.basename(pb.video)
-        self.scorer = (ObjectScorer(data, pb.fps, zone_cm, min_frames,
+        self._made_with = made_with
+        fps = fps or pb.fps
+        self.scorer = (ObjectScorer(data, fps, zone_cm, min_frames,
                                     on_change=self._scored) if objects_mode else None)
+        if self.scorer is not None and self.scorer.scoring.unreadable:
+            show_warning(self, "The saved scoring couldn't be read",
+                         "The saved scoring for this file couldn't be read, so the list "
+                         "starts with nothing scored.\n\n"
+                         f"{os.path.basename(scoring_path(data))} may have been saved "
+                         "from a spreadsheet in a different layout. It won't be lost: "
+                         "before new scoring replaces it, it's copied to "
+                         f"{os.path.basename(unreadable_copy_path(scoring_path(data)))}.")
         self.startle = StartleTrials(data, trials, startle_ms, baseline_ms) if startle_mode else None
         self._set_mode()
-        self.events = [] if objects_mode or startle_mode else outside_events(data, roles, pb.fps)
+        self.events = [] if objects_mode or startle_mode else outside_events(data, roles, fps)
         # The region each frame counted for (outside frames included) and
         # which frames were outside the drawn regions, for the info line.
         self._labels = [] if startle_mode else region_labels(data, roles)[0]
@@ -1005,6 +1094,7 @@ class ReviewPanel(ttk.Frame):
                              f"The video couldn't be opened.\n\n{exc}")
                 return None
         else:
+            self.window.deiconify()     # it may be minimized
             self.window.lift()
         if row is not None:
             self.window.pause()
@@ -1020,6 +1110,8 @@ class ReviewPanel(ttk.Frame):
         visits again (the logged interactions don't change)."""
         if self.scorer is None:
             return
+        if cm != self.scorer.zone_cm and self.window is not None and self.window.winfo_exists():
+            self.window.visit = None    # it was a visit of the old zones
         self.scorer.set_zone(cm)
         self._fill_events()
         if self.window is not None and self.window.winfo_exists():
@@ -1087,21 +1179,30 @@ class ReviewPanel(ttk.Frame):
         if self.window is not None and self.window.winfo_exists():
             self.window.close()
         self.window = None
+        if self.trial_dialog is not None and self.trial_dialog.winfo_exists():
+            self.trial_dialog.destroy()
+        self.trial_dialog = None
         self.pb = self._data = None
+        self._made_with = None
         self.scorer = None
         self.startle = None
         self.events = []
 
     def _cutoff(self) -> float:
+        """The cutoff in the box; what it was last if the box isn't a number
+        above 0."""
         try:
-            v = float(self.cutoff_var.get())
-            return v if v > 0 else 1.0
+            v = float(self.cutoff_var.get().replace(",", "."))
+            return v if v > 0 else self._cutoff_value
         except ValueError:
-            return 1.0
+            return self._cutoff_value
 
     def _apply_cutoff(self) -> None:
         value = self._cutoff()
         self.cutoff_var.set(f"{value:g}")
+        if value == self._cutoff_value:
+            return      # unchanged (e.g. the box only lost the focus): leave the list alone
+        self._cutoff_value = value
         self.on_cutoff(value)
         self._fill_events()
 

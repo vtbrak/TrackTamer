@@ -1,8 +1,7 @@
-"""Checks for core/video.py and core/tracking.py using ezTrack's practice
-videos (in ezTrack/PracticeVideos, gitignored, so this only runs where they
-exist).
+"""Checks for core/video.py and core/tracking.py using the plus maze example
+video (Examples/, gitignored, so this only runs where it exists).
 
-Run from the project folder:  .venv/bin/python tests/test_video.py
+Run from the project folder:  app/.venv/bin/python app/tests/test_video.py
 """
 import os
 import sys
@@ -13,9 +12,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from core import video
 
-EPM_VIDEO = os.path.join(ROOT, "ezTrack", "PracticeVideos", "6_2024-04-01_11-49-23.mp4")
-if not os.path.exists(EPM_VIDEO):
-    sys.exit("ezTrack's practice videos aren't in ezTrack/PracticeVideos.")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from samples import EPM_VIDEO, require
+require(EPM_VIDEO)
 
 fails = 0
 def check(label, cond):

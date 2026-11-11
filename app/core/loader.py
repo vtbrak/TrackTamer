@@ -51,7 +51,7 @@ NON_REGION_BOOL_COLUMNS = {"ROI_transition", "Use_Window", "Frame_Unreadable", "
 _BOOL_TEXT = {"true": True, "false": False, "1": True, "0": False}
 
 
-@dataclass
+@dataclass(eq=False)   # two loads of a file are different objects (and tables can't be compared with ==)
 class TrackingData:
     """A single loaded tracking file, ready for analysis."""
 
@@ -62,6 +62,9 @@ class TrackingData:
     # open field; ol, or, ct, cb, mid for EPM). Their order matches the ROI
     # polygons in ROI_coordinates.
     regions: list[str] = field(default_factory=list)
+    # Set when the file has just been tracked: frames of the session the
+    # video couldn't give at the end (see `tracking.TrackResult`).
+    missing_at_end: int = 0
 
     @property
     def name(self) -> str:

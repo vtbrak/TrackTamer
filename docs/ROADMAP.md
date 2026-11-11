@@ -1614,6 +1614,117 @@ Tamer reads every schema version it knows. Built on a feature branch
 
 ---
 
+## Code review (2026-11-10)
+A whole-codebase review for Windows and Mac (every source file read; fixes
+each have a test in `tests/test_saving.py`, `test_edge_cases.py`,
+`test_gui_fixes.py`, `test_objects.py` or `test_asr.py`).
+
+**Fixed:**
+- Saving: every result file is written whole under a temporary name and then
+  put in place (`core/safe_write.py`), so a failed save, a cancelled video
+  save, or a file open in Excel can't destroy the earlier file. The reference
+  image is saved in a way that works in folders with accented letters on
+  Windows. The crop is recorded exactly (it was rounded to one decimal, which
+  could shift playback by a pixel).
+- Object scoring: placed by video frame, so tracking a video again from
+  another start doesn't shift it; "no interaction" marks survive a change of
+  zone distance; scoring that can't be saved is kept and still used by the
+  results; a scoring file that can't be read is copied aside before it's
+  replaced; the Review tab and the scoring file use the analysis frame rate.
+- Startle: a trial with an unreadable frame in its windows was left without
+  an amplitude by accident (the note's wording matched a check meant for
+  windows outside the recording); it's flagged and still measured. A frames
+  file that can't be used no longer fails the video.
+- Analyze: one failing file no longer stops the rest silently; region roles
+  changed after Analyze re-work the results; a later Analyze warns about a
+  file at a different frame rate; whole numbers in the Summary don't turn
+  into "3.0".
+- Setup window: reopening the Objects step on drawn objects crashed; a
+  region drawn but not closed was thrown away on leaving the step; Start
+  from previous video and Clear all replaced work without asking, and
+  copied shapes between videos of different sizes; the session length kept
+  the test type chosen when the video was added (an Open Field video could
+  be tracked for 5 minutes); a startle end was reset to the whole video;
+  opening the Threshold step rounded or zeroed the threshold; "2 hours" was
+  read as 2 minutes.
+- Main window: Clear, Remove and Close ask before losing video setups that
+  aren't tracked yet; closing the "already tracked" question no longer
+  starts tracking again; Cmd+Q on a Mac goes through the closing checks;
+  the mouse wheel over the Test box no longer changes the test; Cmd+A is
+  bound only on a Mac (on Windows it meant Num Lock + A).
+- Windows-specific: bold text used a typeface name that doesn't exist;
+  windows could open taller than a small laptop screen; Space re-pressed the
+  last clicked button in the playback window.
+- Settings: a scale length for Object Recognition (and a session length for
+  startle) wasn't remembered between runs.
+
+**Decided by the user and built (2026-11-11):**
+1. **Time bins are true to the clock**: bin k starts at the frame nearest
+   k x the bin length (`metrics._bin_ranges`), so Start_s / End_s are right
+   however long the session. At 9.84 fps bins hold 590 or 591 frames in turn
+   (before: always 590, 2.6 s early by the end of 65 minutes). Session totals
+   are unchanged; per-bin numbers shift slightly from earlier exports.
+2. **An end placed with "Set end here" stays on its frame** when the start
+   moves (`VideoSetup.end_placed`); a typed or standard length still follows
+   the start. An end that makes the session longer than the test's session
+   length asks first (the user: "if an end is set that is outside of the
+   selected time for the task give a warning"; read as longer than, not
+   shorter than).
+3. **A video save in progress is asked about** before another file is
+   selected, or Clear, Remove or Close would stop it (`ReviewPanel.release`).
+4. **Cancel start (Esc)** in the scoring panel drops an interaction started
+   by mistake; nothing is logged.
+5. **The trim step shows "Last frame N"** (the trial's last frame), not the
+   frame after it.
+6. **Package versions are pinned** to the exact tested ones in both install
+   files (a rule for every app in the suite; see CLAUDE.md). Checked: the
+   pinned Anaconda packages resolve for Windows and both kinds of Mac, every
+   pinned pip package has a Windows download, and the Mac installer updated
+   the existing environment from the pinned file. The no-Anaconda route now
+   needs Python 3.12 or newer.
+
+7. **Files that would write the same result files are stopped and named**
+   at Track and at Export (X.avi and X.mp4 both write X_LocationOutput.csv
+   and X_analysis.xlsx): those are left out until one is removed; the rest
+   go ahead (`gui._split_same_results`).
+8. **A reference image that's out of date unticks steps 3 and 4**
+   (`VideoSetup.untick_stale_reference`): changing a video's start, end or
+   session length, its crop, or the shared downsampling or "Frames to use"
+   means Track would have to make a new reference the user never saw, so the
+   video shows as needing setup until the reference is made again and the
+   tracking check looked at. (Note: "Frames to use" is shared, so making one
+   video's reference with a different count unticks the others'.)
+
+9. **Nose and rear end is faster, with identical results** (branch
+   `head-tail`). The first idea (start each frame from the last frame's
+   search size) saved nothing when timed and was undone. Profiling showed
+   the cost was the wide "join split pieces" step running on every frame; it
+   now runs only when the search square holds a second piece to join. Every
+   point was identical on five videos (12,500 frames); tracking with the
+   points took about a third less time for large animals (30.6 s to 19.6 s
+   for 2,500 frames) and a little less for small ones.
+10. **Export shows a progress bar with Cancel** and keeps the window usable
+    between files (Analyze, Export, Track, Clear and Remove wait meanwhile;
+    Cancel stops after the file being written). **The Zone distance box
+    applies once typing stops** (half a second, or at once on Return, on
+    leaving the box, and before Analyze, Export or the Review tab).
+
+All ten decisions from the review are settled.
+
+**Found while doing them (2026-11-11), fixed:** since the frame-jump fix on
+`main` (2026-11-10), a video with a damaged stretch was tracked only up to
+the damage, with no warning: the damage cuts the video's timestamp list
+short, and frames past the end of that list were taken not to exist
+(`6_2023-03-26_15-19-33.mp4`: unreadable from frame 708 to 1,516, which the
+user confirmed in the video itself, and 308 frames tracked of 6,031). A timestamp list much shorter than the file's
+frame count is no longer used (`core/video.py`), so reading carries on past
+the damage and those frames are kept as unreadable rows, as decided in §12.
+Tracking also reports how many frames of the session couldn't be read at the
+end (`TrackResult.missing_at_end`), and the app warns when that is more than
+a few. **This fix is needed on `main` too.**
+
+**Also pinned:** the exact Python version (3.12.16) in `environment.yml`.
+
 ## Build order
 Done:
 1. ✅ Config/persistence layer (`config.json`) — §6.

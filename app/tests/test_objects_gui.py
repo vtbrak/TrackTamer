@@ -2,10 +2,10 @@
 step, the tracking file's object columns, the Review tab's zone visits and
 scoring, and the results.
 
-Uses ezTrack's practice clip (ezTrack/PracticeVideos/LocationTracking_Clip.mp4,
-gitignored), copied to a temporary folder. Settings go to a temporary config.
+Uses the practice clip cut from the plus maze example (tests/samples.py),
+copied to a temporary folder. Settings go to a temporary config.
 
-Run from the project folder:  .venv/bin/python tests/test_objects_gui.py
+Run from the project folder:  app/.venv/bin/python app/tests/test_objects_gui.py
 """
 import os
 import shutil
@@ -26,15 +26,25 @@ gui.show_warning = lambda p, t, m, **k: log.append(t)
 gui.show_info = lambda p, t, m, **k: log.append(t)
 gui.show_error = lambda p, t, m, **k: log.append(t)
 gui.ask_yes_no = lambda p, t, m, **k: (log.append(t), yesno.pop(0) if yesno else True)[1]
+# A several-button question: a queued True picks the last button, False the
+# one before it, None closes the window (which cancels).
+def _choice(p, t, m, choices, default=None, **k):
+    log.append(t)
+    answer = yesno.pop(0) if yesno else True
+    return None if answer is None else choices[-1] if answer else choices[-2]
+gui.ask_choice = _choice
 import setup_window, review_panel
 for mod in (setup_window, review_panel):
     mod.show_info, mod.show_warning = gui.show_info, gui.show_warning
+review_panel.ask_yes_no = gui.ask_yes_no
 setup_window.ask_yes_no = gui.ask_yes_no
 gui.TrackTamerApp.wait_window = lambda self, w=None: None
 
-SRC = os.path.join(ROOT, "ezTrack", "PracticeVideos", "LocationTracking_Clip.mp4")
-if not os.path.exists(SRC):
-    sys.exit("ezTrack's practice clip isn't in the project folder.")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from samples import practice_clip
+SRC = practice_clip()
+if SRC is None:
+    sys.exit("The plus maze example video (for the practice clip) is missing from Examples.")
 CLIP = os.path.join(tmp, "clip.mp4")
 shutil.copy(SRC, CLIP)
 
@@ -85,7 +95,7 @@ circles = [i for i in win.canvas.find_withtag("overlay") if win.canvas.type(i) =
 check("circles drawn with see-through fills", circles and win.canvas.find_withtag("fills"))
 check("no zone ring before the scale (a note says why)", "scale is set" in win.object_note.cget("text"))
 v.scale_points, v.scale_cm = [(100, 100), (500, 100)], 40.0   # 10 px per cm
-app.zone_var.set("3"); app.update()
+app.zone_var.set("3"); app._flush_zone_change(); app.update()
 dashed = [i for i in win.canvas.find_withtag("overlay")
           if win.canvas.type(i) == "oval" and win.canvas.itemcget(i, "dash")]
 check("zone rings drawn once scaled, following the zone box", len(dashed) == 2
@@ -136,14 +146,33 @@ check("clicking a visit opens the playback window at the frame the point enters 
       and pw.object_var.get() == "object 1" and "object 1 zone" in pw.info.cget("text"))
 pw.mark_end()
 check("End before Start says what to do", "Start interaction" in pw.score_text.cget("text"))
+# A Start pressed by mistake is dropped with Cancel start (Esc): nothing logged.
+check("Cancel start is only available while an interaction is open",
+      str(pw.cancel_btn.cget("state")) == "disabled" and bool(pw.bind("<Escape>")))
+pw.mark_start()
+check("Start opens an interaction and enables Cancel start",
+      pw.scorer.pending == ("object 1", pw.row) and str(pw.cancel_btn.cget("state")) == "normal")
+pw.cancel_start(); app.update()
+check("Cancel start drops it: nothing logged, nothing saved, and the info line says so",
+      pw.scorer.pending is None and not pw.scorer.scoring.bouts
+      and not os.path.exists(scoring_path(app.files[0].data))
+      and str(pw.cancel_btn.cget("state")) == "disabled"
+      and "cancelled" in pw.score_text.cget("text")
+      and "open since" not in pw.info.cget("text"))
+pw.cancel_start()
+check("Cancel start with nothing open does nothing", "cancelled" in pw.score_text.cget("text"))
 pw.step(2); pw.mark_start(); pw.step(5); pw.mark_end(); app.update()
+check("End closes the interaction and Cancel start goes back to unavailable",
+      str(pw.cancel_btn.cget("state")) == "disabled")
 sc = load_scoring(app.files[0].data)
 check("Start / End logs an interaction and saves it",
       [(b.object, b.start, b.end) for b in sc.bouts] == [("object 1", visit["row"] + 2, visit["row"] + 7)]
       and os.path.exists(scoring_path(app.files[0].data)))
 check("the visit shows as scored in the list",
       rv.tree.item("0", "values")[-1] == "interaction"
-      and "object 1 0.2 s (1 interaction)" in rv.summary.cget("text"))
+      # (lengths use the Frame rate box, as the results do)
+      and f"object 1 {round(6 / float(app.fps_var.get()), 2):g} s (1 interaction)"
+      in rv.summary.cget("text"))
 pw.mark_none()
 check("No interaction on a visit with an interaction is refused",
       "already has an interaction" in pw.score_text.cget("text"))
@@ -178,10 +207,10 @@ pw.show(vis[-1]["end"] + 1 if vis[-1]["end"] + 1 < pw.pb.n_frames else vis[-1]["
 pw.visit = None; pw.go_visit(1)
 check("Next after the last visit says so", "last zone visit" in pw.score_text.cget("text"))
 n_before = len(rv.scorer.visits)
-app.zone_var.set("0"); app.update()
+app.zone_var.set("0"); app._flush_zone_change(); app.update()
 check("changing the zone distance updates the visit list (no re-tracking)",
       len(rv.scorer.visits) != n_before or rv.scorer.zone_cm == 0)
-app.zone_var.set("3"); app.update()
+app.zone_var.set("3"); app._flush_zone_change(); app.update()
 
 # Edit object types, day and phase after tracking (ROADMAP §15).
 check("Edit trial info button shown for Object Recognition", bool(rv.trial_btn.winfo_manager()))

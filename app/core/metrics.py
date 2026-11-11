@@ -309,12 +309,24 @@ def epm_binned(
 
 
 def _bin_ranges(n: int, fps: float, bin_seconds: float):
-    """(bin number, first frame, end frame) for each time bin; same split as
-    binned_metrics."""
-    if n == 0 or not fps or not bin_seconds:
+    """(bin number, first frame, end frame) for each time bin. Every table of
+    time bins is cut here.
+
+    Bins are true to the clock (user, 2026-11-11): bin k starts at the frame
+    nearest k x `bin_seconds`, so each bin's start and end times are what the
+    table says, however long the session. When the frame rate times the bin
+    length isn't a whole number of frames (9.84 fps x 60 s = 590.4), bins hold
+    590 or 591 frames in turn instead of all holding 590 and drifting early
+    (2.6 s by the end of a 65-minute session)."""
+    if n == 0 or not fps or not bin_seconds or fps <= 0 or bin_seconds <= 0:
         return []
-    per_bin = max(1, int(round(bin_seconds * fps)))
-    return [(k + 1, lo, min(lo + per_bin, n)) for k, lo in enumerate(range(0, n, per_bin))]
+    ranges, lo, k = [], 0, 0
+    while lo < n:
+        k += 1
+        hi = min(max(int(round(k * bin_seconds * fps)), lo + 1), n)   # never an empty bin
+        ranges.append((k, lo, hi))
+        lo = hi
+    return ranges
 
 
 def summary_metrics(data: TrackingData, fps: float = 20.0,
@@ -352,7 +364,8 @@ def summary_metrics(data: TrackingData, fps: float = 20.0,
         out["FilledFrames"] = int(df["Frame_Filled"].sum())
 
     # Mean speed over the whole session.
-    if duration_s and not np.isnan(dist_cm):
+    # (Duration_s is the shown, rounded length: 0 for a file of a frame or two.)
+    if out["Duration_s"] and not np.isnan(out["Duration_s"]) and not np.isnan(dist_cm):
         out["MeanSpeed_cm_s"] = round(round(dist_cm, 2) / out["Duration_s"], 3)
 
     # Time and % of the session in each region, one region per frame.
@@ -635,34 +648,32 @@ def binned_metrics(
     One row per bin: distance, mean speed, and time/percent in each zone
     (one region per frame, as in the summary).
     """
-    df = data.df.copy()
-    n = len(df)
-    if n == 0 or not fps or not bin_seconds:
+    df = data.df
+    ranges = _bin_ranges(len(df), fps, bin_seconds)
+    if not ranges:
         return pd.DataFrame()
-
-    frames_per_bin = max(1, int(round(bin_seconds * fps)))
-    df["_bin"] = (np.arange(n) // frames_per_bin).astype(int)
-
     zones = data.regions
-    df["_unreadable"] = data.unreadable
-    df["_region"] = region_labels(data, roles)[0]
+    bad = data.unreadable
+    region = region_labels(data, roles)[0]
+    distance = (df["Distance_cm"].to_numpy(dtype=float) if "Distance_cm" in df.columns
+                else None)
+    session_s = len(df) / fps
     rows = []
-    for bin_idx, g in df.groupby("_bin"):
-        gframes = len(g)
-        dist_cm = float(g["Distance_cm"].sum()) if "Distance_cm" in g else float("nan")
-        bin_dur_s = gframes / fps
-        length = secs(gframes, fps)
+    for number, lo, hi in ranges:
+        frames = hi - lo
+        dist_cm = float(np.nansum(distance[lo:hi])) if distance is not None else float("nan")
+        length = secs(frames, fps)
         row = {
-            "Bin": int(bin_idx) + 1,
-            "Start_s": round(bin_idx * bin_seconds, 2),
-            "End_s": round(bin_idx * bin_seconds + bin_dur_s, 2),
-            "Frames": gframes,
+            "Bin": number,
+            "Start_s": round((number - 1) * bin_seconds, 2),
+            "End_s": round(min(number * bin_seconds, session_s), 2),
+            "Frames": frames,
             "Distance_cm": round(dist_cm, 2),
             "MeanSpeed_cm_s": round(round(dist_cm, 2) / length, 3) if length else float("nan"),
-            "UnreadableFrames": int(g["_unreadable"].sum()),
+            "UnreadableFrames": int(bad[lo:hi].sum()),
         }
         for zone in zones:
-            row[f"Time_{zone}_s"] = secs(int((g["_region"] == zone).sum()), fps)
+            row[f"Time_{zone}_s"] = secs(int(np.sum(region[lo:hi] == zone)), fps)
             row[f"Percent_{zone}"] = pct(row[f"Time_{zone}_s"], length)
         rows.append(row)
 
@@ -760,6 +771,8 @@ def order_bins(bins: pd.DataFrame, test: str) -> pd.DataFrame:
         return bins
     first = [c for c in ("Bin", "Start_s", "End_s") if c in bins.columns] + keys
     return bins[first + [c for c in bins.columns if c not in first]]
+
+
 _DETAILS = ("Frames", "FPS", "Duration_s", "TotalDistance_px", "UnreadableFrames",
             "FilledFrames")
 

@@ -23,13 +23,15 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
 from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
 
 from .loader import TrackingData
-from .metrics import carry_over_gaps, held_states, secs
+from .metrics import carry_over_gaps, secs
+from .safe_write import write_csv
 
 KINDS = ("Familiar", "Novel", "Moved")
 PHASES = ("Habituation", "Training", "Test")
@@ -105,20 +107,10 @@ def update_trial_info(data: TrackingData, kinds: dict[str, str], day: str, phase
     table = pd.read_csv(data.path, dtype=str, keep_default_na=False)
     for column, value in values.items():
         table[column] = value
-    temporary = data.path + ".tmp"
-    try:
-        table.to_csv(temporary, index=False)
-        os.replace(temporary, data.path)
-    finally:
-        if os.path.exists(temporary):
-            os.remove(temporary)
+    write_csv(table, data.path)
     data.settings.update(values)
     for column, value in values.items():
         data.df[column] = value
-
-
-def has_objects(data: TrackingData) -> bool:
-    return bool(file_objects(data))
 
 
 # --- zones --------------------------------------------------------------------
@@ -217,6 +209,10 @@ class Scoring:
     as no interaction (by object and the visit's first frame)."""
     bouts: list[Bout] = field(default_factory=list)
     no_interaction: set[tuple[str, int]] = field(default_factory=set)
+    # The saved scoring file was there but couldn't be read (e.g. saved from
+    # a spreadsheet in another layout): it's copied aside before the first
+    # save replaces it (`save_scoring`).
+    unreadable: bool = False
 
     def add_bout(self, obj: str, start: int, end: int) -> Bout:
         """Log an interaction. One that overlaps or touches another with the
@@ -236,12 +232,20 @@ class Scoring:
     def overlapping(self, obj: str, start: int, end: int) -> list[Bout]:
         return [b for b in self.bouts if b.object == obj and b.start <= end and start <= b.end]
 
+    def marks_in(self, visit: dict) -> set[tuple[str, int]]:
+        """The no-interaction marks that fall inside a zone visit. A mark is
+        the frame its visit started on when it was made; a visit's first
+        frame moves when the zone distance changes, so marks are matched by
+        being inside the visit, not by its first frame."""
+        return {(obj, row) for obj, row in self.no_interaction
+                if obj == visit["object"] and visit["row"] <= row <= visit["end"]}
+
     def visit_status(self, visit: dict) -> str:
         """"scored" (has an interaction), "none" (marked no interaction) or
         "" (not reviewed yet)."""
         if self.overlapping(visit["object"], visit["row"], visit["end"]):
             return "scored"
-        if (visit["object"], visit["row"]) in self.no_interaction:
+        if self.marks_in(visit):
             return "none"
         return ""
 
@@ -253,21 +257,54 @@ def scoring_path(data: TrackingData) -> str:
     return base + SCORING_SUFFIX
 
 
+# Scoring that couldn't be saved (the file open in another program, a full
+# disk), by scoring file: kept here so the results, the export and a later
+# visit to the file still use it, and the next change tries the save again.
+_unsaved: dict[str, Scoring] = {}
+
+
+def _scoring_key(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
+
+
+def unreadable_copy_path(path: str) -> str:
+    """Where a scoring file that couldn't be read is copied before it's
+    replaced (a .txt, so it isn't taken for a tracking file)."""
+    return os.path.splitext(path)[0] + "_unreadable.txt"
+
+
 def save_scoring(data: TrackingData, scoring: Scoring, fps: float) -> str:
-    """Write the scoring beside the tracking file (replacing it)."""
+    """Write the scoring beside the tracking file (replacing it). A failed
+    save leaves the earlier scoring file as it was and raises OSError; the
+    scoring is then kept in memory (`load_scoring` returns it) until a save
+    works. A scoring file that was there but couldn't be read is copied
+    aside first, so nothing in it is lost."""
     path = scoring_path(data)
-    scoring_table(data, scoring, fps).to_csv(path, index=False)
+    try:
+        if scoring.unreadable and os.path.exists(path):
+            shutil.copyfile(path, unreadable_copy_path(path))
+        write_csv(scoring_table(data, scoring, fps), path)
+    except OSError:
+        _unsaved[_scoring_key(path)] = scoring
+        raise
+    scoring.unreadable = False
+    _unsaved.pop(_scoring_key(path), None)
     return path
+
+
+def _start_frame(data: TrackingData) -> int:
+    """The video frame of the tracking file's first row."""
+    try:
+        return int(float(data.settings.get("Start_Frame", 0)))
+    except (TypeError, ValueError):
+        return 0
 
 
 def scoring_table(data: TrackingData, scoring: Scoring, fps: float) -> pd.DataFrame:
     """The scoring as a table (the scoring file, and the exported
     Interactions sheet). Frames are 1-based as shown, with the video's own
     frame and times, so it can be checked against the video by hand."""
-    try:
-        start = int(float(data.settings.get("Start_Frame", 0)))
-    except (TypeError, ValueError):
-        start = 0
+    start = _start_frame(data)
     rows = []
     for b in scoring.bouts:
         rows.append({"Type": INTERACTION, "Object": b.object, "Start_Frame": b.start + 1,
@@ -284,23 +321,50 @@ def scoring_table(data: TrackingData, scoring: Scoring, fps: float) -> pd.DataFr
 
 
 def load_scoring(data: TrackingData) -> Scoring:
-    """The file's saved scoring (empty if none or unreadable)."""
+    """The file's scoring: what couldn't be saved earlier this session if
+    there is any, else the saved file (empty if there's none).
+
+    Each line is placed by its **video frame** (`Start_VideoFrame`), so
+    scoring stays on the same moments of the video when the video is tracked
+    again from a different start frame; a line outside the tracked frames is
+    kept (it counts for nothing) rather than dropped. Files without those
+    columns fall back to the row numbers. A file that's there but can't be
+    read gives an empty scoring marked `unreadable`."""
     path = scoring_path(data)
+    kept = _unsaved.get(_scoring_key(path))
+    if kept is not None:
+        return kept
     s = Scoring()
     if not os.path.exists(path):
         return s
     try:
-        df = pd.read_csv(path)
+        # sep=None: also reads a file saved from a spreadsheet with semicolons.
+        df = pd.read_csv(path, sep=None, engine="python")
     except Exception:
+        s.unreadable = os.path.getsize(path) > 0
         return s
+    start = _start_frame(data)
+
+    def row_of(r, shown: str, video: str) -> int:
+        if video in df.columns and not pd.isna(r[video]):
+            return int(float(r[video])) - start
+        return int(float(r[shown])) - 1
+
+    read = 0
     for _, r in df.iterrows():
         try:
             if r["Type"] == INTERACTION:
-                s.add_bout(str(r["Object"]), int(r["Start_Frame"]) - 1, int(r["End_Frame"]) - 1)
+                s.add_bout(str(r["Object"]), row_of(r, "Start_Frame", "Start_VideoFrame"),
+                           row_of(r, "End_Frame", "End_VideoFrame"))
             elif r["Type"] == NO_INTERACTION:
-                s.no_interaction.add((str(r["Object"]), int(r["Start_Frame"]) - 1))
+                s.no_interaction.add((str(r["Object"]),
+                                      row_of(r, "Start_Frame", "Start_VideoFrame")))
+            else:
+                continue
+            read += 1
         except (KeyError, TypeError, ValueError):
             continue
+    s.unreadable = bool(len(df)) and not read
     return s
 
 

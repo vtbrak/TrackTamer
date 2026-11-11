@@ -138,6 +138,71 @@ try:
     check("a blank day and an unknown phase are written as blank",
           trial_info(load_csv(path)) == ("", ""))
 
+    # --- scoring stays on the same moments of the video -------------------
+    from core.objects import Scoring, unreadable_copy_path
+    d = load_csv(path)                                   # Start_Frame 300
+    sc = Scoring(); sc.add_bout("object 1", 15, 20); sc.no_interaction.add(("object 2", 71))
+    save_scoring(d, sc, 1.0)
+    table = pd.read_csv(scoring_path(d))
+    check("the scoring file records the video's own frames",
+          list(table["Start_VideoFrame"]) == [315, 371] and table["End_VideoFrame"][0] == 320)
+    # The video is tracked again starting 10 frames later: rows shift by 10.
+    later = df.iloc[10:].copy(); later["Frame"] = range(len(later)); later["Start_Frame"] = 310
+    later.to_csv(path, index=False)
+    d2 = load_csv(path)
+    back = load_scoring(d2)
+    check("after tracking again from a later start, scoring is still on the same video frames",
+          [(b.object, b.start, b.end) for b in back.bouts] == [("object 1", 5, 10)]
+          and back.no_interaction == {("object 2", 61)})
+    # Tracked again from after the interaction: it's outside the file now.
+    much = df.iloc[40:].copy(); much["Frame"] = range(len(much)); much["Start_Frame"] = 340
+    much.to_csv(path, index=False)
+    d3 = load_csv(path)
+    out = load_scoring(d3)
+    m3 = object_metrics(d3, out, 1.0, zpx)
+    check("an interaction before the new start counts for nothing but isn't dropped",
+          m3["OR_Time_object 1_s"] == 0 and m3["OR_Bouts_object 1"] == 0
+          and [(b.start, b.end) for b in out.bouts] == [(-25, -20)])
+    save_scoring(d3, out, 1.0)
+    check("and saving keeps it on its video frames",
+          pd.read_csv(scoring_path(d3))["Start_VideoFrame"][0] == 315)
+    df.to_csv(path, index=False); d = load_csv(path)
+    old = pd.read_csv(scoring_path(d)).drop(columns=["Start_VideoFrame", "End_VideoFrame"])
+    old["Start_Frame"] = [16, 72]; old["End_Frame"] = [21, None]
+    old.to_csv(scoring_path(d), index=False)
+    check("a scoring file without video frames is read by its row numbers",
+          [(b.start, b.end) for b in load_scoring(d).bouts] == [(15, 20)])
+
+    # --- no-interaction marks survive a change of zone distance -----------
+    sc = Scoring(); sc.no_interaction.add(("object 1", 11))      # the 2 cm visit starts at 11
+    narrow = zone_visits(d, file_objects(d), zpx, 1.0)[0]
+    wide = zone_visits(d, file_objects(d), distance_px(d, 4.0)[0], 1.0)[0]
+    check("a wider zone starts the visit earlier", (narrow["row"], wide["row"]) == (11, 7))
+    check("a visit marked no interaction stays marked when the zone distance changes",
+          sc.visit_status(narrow) == "none" and sc.visit_status(wide) == "none")
+    check("a mark for another object, or outside the visit, doesn't count",
+          Scoring(no_interaction={("object 2", 11)}).visit_status(narrow) == ""
+          and Scoring(no_interaction={("object 1", 40)}).visit_status(narrow) == "")
+
+    # --- a scoring file that can't be read is never silently replaced -----
+    semi = scoring_path(d)
+    with open(semi, "w") as f:      # as a spreadsheet saves it with semicolons
+        f.write("Type;Object;Start_Frame;End_Frame;Start_VideoFrame;End_VideoFrame\n"
+                "Interaction;object 1;16;21;315;320\n")
+    check("a scoring file saved with semicolons is read",
+          [(b.start, b.end) for b in load_scoring(d).bouts] == [(15, 20)])
+    with open(semi, "w") as f:
+        f.write("Typ,Objekt,Von,Bis\nInteraktion,object 1,16,21\n")
+    odd = load_scoring(d)
+    check("a scoring file in another layout loads as empty and is marked unreadable",
+          odd.unreadable and not odd.bouts)
+    odd.add_bout("object 2", 72, 75)
+    save_scoring(d, odd, 1.0)
+    check("before new scoring replaces it, the unreadable file is copied aside",
+          open(unreadable_copy_path(semi)).read().startswith("Typ,Objekt")
+          and [(b.object, b.start) for b in load_scoring(d).bouts] == [("object 2", 72)]
+          and not load_scoring(d).unreadable)
+
     # Training: every object familiar, so DI and % preference are blank.
     df["Objects"] = objects_to_text([TrialObject("object 1", 20, 50, 5),
                                      TrialObject("object 2", 80, 50, 5)])

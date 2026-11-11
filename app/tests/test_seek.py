@@ -111,5 +111,41 @@ for path in VIDEOS:
         check(f"playback from start frame {start}: {len(rows)} rows shown on the frames "
               "tracking read" + (f" (wrong at rows {wrong[:8]})" if wrong else ""), not wrong)
 
+# A damaged video: its timestamps stop at the damage (708 of 6,432 frames in
+# this example). That short list must not be trusted, or every frame after
+# the damage looks as if it doesn't exist and tracking silently stops there
+# (it tracked 308 frames of a 6,000-frame session).
+DAMAGED = os.path.join(EXAMPLES, "6_2023-03-26_15-19-33.mp4")
+if os.path.exists(DAMAGED):
+    info = video.video_info(DAMAGED)
+    check("a damaged video's cut-short timestamp list isn't used",
+          video.frame_times(DAMAGED) is None)
+    with video.VideoReader(DAMAGED) as reader:
+        rows = [(i, frame is not None) for i, frame in reader.frames(400, 2000)]
+    readable = sum(ok for _i, ok in rows)
+    check(f"reading carries on past the damage: {len(rows)} of 1,600 rows, "
+          f"{readable} readable, the rest kept as unreadable rows",
+          len(rows) == 1600 and rows[0][0] == 400 and rows[-1][0] == 1999
+          and 0 < readable < 1600)
+    from core import tracking
+    blank = np.full((info.height, info.width), 128.0)
+    result = tracking.track_video(DAMAGED, blank, tracking.TrackingParams(), start=400,
+                                  end=2000)
+    check("so tracking covers the whole stretch asked for, with the unreadable frames marked",
+          len(result.df) == 1600 and result.missing_at_end == 0
+          and result.unreadable == 1600 - readable)
+    # A session that ends inside the damage: the unreadable run at its end is
+    # dropped (as at the end of any file), and tracking says how much is missing.
+    cut = tracking.track_video(DAMAGED, blank, tracking.TrackingParams(), start=400,
+                               end=1400)
+    check(f"a session ending inside the damage reports the frames it's short by "
+          f"({cut.missing_at_end} of 1,000)",
+          len(cut.df) + cut.missing_at_end == 1000 and cut.missing_at_end > 500)
+else:
+    print("skipped the damaged-video checks (that example isn't in the Examples folder)")
+whole = video.frame_times(VIDEOS[0])
+check("a whole video's timestamp list is still used (one per frame)",
+      whole is not None and len(whole) == video.video_info(VIDEOS[0]).frame_count)
+
 print("\nFAILED" if fails else "\nall ok", f"({fails} failed)" if fails else "")
 sys.exit(1 if fails else 0)
