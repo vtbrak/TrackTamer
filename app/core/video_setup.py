@@ -58,6 +58,14 @@ class VideoSetup:
     start: int = 0
     end: int | None = None                   # exclusive; None = to the end
     length_s: float | None = None            # session length; sets the end when given
+    # The test whose standard length `length_s` is ("" once the user types a
+    # length or sets the end): a standard length follows the test type when
+    # that changes, a length the user chose never does.
+    length_default: str = ""
+    # The end placed with "Set end here" (exclusive frame), or None when the
+    # end comes from a typed or standard length. A placed end stays on its
+    # frame when the start moves (user, 2026-11-11); a length follows the start.
+    end_placed: int | None = None
     crop: tuple[float, float, float, float] | None = None   # full-size x0, y0, x1, y1
     exclusions: list[tuple[list, list]] = field(default_factory=list)  # full-size polygons
     reference: np.ndarray | None = None
@@ -146,6 +154,18 @@ class VideoSetup:
         return (self.reference is not None
                 and self.reference_key == self._reference_inputs(dsmpl, frames))
 
+    def untick_stale_reference(self, dsmpl: float, frames: int) -> bool:
+        """The reference image was made from a start, end, crop, downsampling
+        and frame count that have since changed, so Track would have to make
+        a new one the user never saw: untick Reference and Tracking check,
+        so the user makes it again and looks at the tracking check (user,
+        2026-11-11). True if anything was unticked."""
+        if self.reference is None or self.reference_current(dsmpl, frames):
+            return False
+        stale = self.steps_done & {"reference", "tracking"}
+        self.steps_done -= stale
+        return bool(stale)
+
     def build_reference(self, dsmpl: float, frames: int) -> np.ndarray:
         self.reference = make_reference(self.path, self.prep(dsmpl), self.start,
                                         self.end_frame, num_frames=int(frames))
@@ -217,18 +237,32 @@ class VideoSetup:
         return self.ready
 
     # --- drafts from another video ---------------------------------------
+    def same_size(self, other: "VideoSetup") -> bool:
+        return (self.info.width, self.info.height) == (other.info.width, other.info.height)
+
+    def has_drawn_work(self) -> bool:
+        """True if anything has been drawn or placed for this video."""
+        return bool(self.crop or self.exclusions or self.regions or self.objects
+                    or self.scale_points)
+
     def copy_from(self, other: "VideoSetup") -> None:
         """Start from another video's crop, shapes, regions, scale and session
         length, as a draft: the steps they belong to are marked not done, so
-        the user looks at each one."""
-        self.crop = copy.deepcopy(other.crop)
-        self.exclusions = copy.deepcopy(other.exclusions)
-        self.regions = copy.deepcopy(other.regions)
-        self.scale_points = copy.deepcopy(other.scale_points)
+        the user looks at each one. Everything drawn is in the other video's
+        pixels, so it's only copied from a video of the same frame size
+        (`same_size`); from a different size only the session length, object
+        names and types, and trial info come across."""
+        if self.same_size(other):
+            self.crop = copy.deepcopy(other.crop)
+            self.exclusions = copy.deepcopy(other.exclusions)
+            self.regions = copy.deepcopy(other.regions)
+            self.scale_points = copy.deepcopy(other.scale_points)
+            self.objects = copy.deepcopy(other.objects)
         self.scale_cm = other.scale_cm
         self.length_s = other.length_s
+        self.length_default = other.length_default
+        self.end_placed = None      # the other video's end frame isn't this one's
         self.object_names = list(other.object_names)
-        self.objects = copy.deepcopy(other.objects)
         self.object_kinds = dict(other.object_kinds)
         self.trial_day, self.trial_phase = other.trial_day, other.trial_phase
         self.steps_done -= {"trim", "exclusions", "reference", "regions", "scale"}

@@ -22,9 +22,17 @@ log = []
 for name in ("show_warning", "show_info", "show_error"):
     setattr(gui, name, lambda p, t, m, **k: log.append(t))
 gui.ask_yes_no = lambda p, t, m, **k: (log.append(t), True)[1]
+# A several-button question: a queued True picks the last button, False the
+# one before it, None closes the window (which cancels).
+def _choice(p, t, m, choices, default=None, **k):
+    log.append(t)
+    answer = True
+    return None if answer is None else choices[-1] if answer else choices[-2]
+gui.ask_choice = _choice
 import setup_window, review_panel
 for mod in (setup_window, review_panel):
     mod.show_info, mod.show_warning = gui.show_info, gui.show_warning
+review_panel.ask_yes_no = gui.ask_yes_no
 setup_window.ask_yes_no = gui.ask_yes_no
 gui.TrackTamerApp.wait_window = lambda self, w=None: None
 import pandas as pd

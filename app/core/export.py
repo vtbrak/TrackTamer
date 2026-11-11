@@ -18,6 +18,8 @@ import pandas as pd
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
+from .safe_write import replacing
+
 IMAGE_DPI = 200  # the default 5 x 4.5 in figure saves at 1000 x 900 px
 
 
@@ -45,10 +47,12 @@ def write_analysis_workbook(
     if interactions is not None:   # Object Recognition: the logged scoring
         sheets = {"Summary": sheets["Summary"], "Interactions": interactions,
                   bins_sheet: sheets[bins_sheet], "Settings": settings}
-    with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
-        for name, df in sheets.items():
-            df.to_excel(writer, sheet_name=name, index=False)
-            _fit_columns(writer.sheets[name], df)
+    # Written whole before it replaces an earlier workbook (`replacing`).
+    with replacing(xlsx_path) as tmp:
+        with pd.ExcelWriter(tmp, engine="openpyxl") as writer:
+            for name, df in sheets.items():
+                df.to_excel(writer, sheet_name=name, index=False)
+                _fit_columns(writer.sheets[name], df)
 
 
 def _fit_columns(sheet, df: pd.DataFrame) -> None:
@@ -65,8 +69,9 @@ def save_figure(fig: Figure, png_path: str) -> None:
     FigureCanvasAgg(fig)  # figures built for the GUI may not have a canvas yet
     # "tight" sizes the image to everything drawn (labels, colorbar, region
     # names outside the plot), so nothing is clipped at the edges.
-    fig.savefig(png_path, dpi=IMAGE_DPI, transparent=not getattr(fig, "opaque", False),
-                bbox_inches="tight", pad_inches=0.1)
+    with replacing(png_path) as tmp:
+        fig.savefig(tmp, dpi=IMAGE_DPI, transparent=not getattr(fig, "opaque", False),
+                    bbox_inches="tight", pad_inches=0.1)
 
 
 def settings_table(sections: dict[str, dict]) -> pd.DataFrame:

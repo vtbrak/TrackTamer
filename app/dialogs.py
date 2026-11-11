@@ -5,7 +5,12 @@ text differently (macOS bolds the whole message; Windows bolds nothing). These
 dialogs are drawn with tkinter itself, so every pop-up shows its first
 sentence in bold and the rest in regular type, on both systems.
 
-API mirrors messagebox: show_info / show_warning / show_error / ask_yes_no.
+API mirrors messagebox: show_info / show_warning / show_error / ask_yes_no,
+plus ask_choice (several named buttons, where closing the window cancels).
+
+Also here, because they are the same kind of portability helper: `bold_font`
+(bold text in the system's own font) and `fit_window` (a window size that
+fits the screen).
 """
 
 from __future__ import annotations
@@ -131,3 +136,40 @@ def show_error(parent, title: str, message: str) -> None:
 def ask_yes_no(parent, title: str, message: str, yes: str = "Yes", no: str = "No") -> bool:
     """True if the user picks `yes`. Closing the window or Escape counts as `no`."""
     return _run(parent, title, message, "question", [no, yes], yes, no) == yes
+
+
+def ask_choice(parent, title: str, message: str, choices: list[str],
+               default: str | None = None) -> str | None:
+    """The button the user picked, from `choices` (shown left to right;
+    Return picks `default`, the last one unless given). None if the window
+    was closed or Escape pressed: use this instead of ask_yes_no when neither
+    answer is safe to assume."""
+    return _run(parent, title, message, "question", list(choices),
+                default or choices[-1], None)
+
+
+_bold_fonts: dict = {}
+
+
+def bold_font(size: int | None = None) -> tkfont.Font:
+    """The system's default font in bold, at `size` points (its own size if
+    not given). A copy of the named font, so it's the right typeface on both
+    Mac and Windows; writing ("TkDefaultFont", 11, "bold") instead names a
+    typeface that doesn't exist, and each system substitutes its own."""
+    key = (id(tk._default_root), size)
+    if key not in _bold_fonts:
+        font = tkfont.nametofont("TkDefaultFont").copy()
+        font.configure(weight="bold")
+        if size:
+            font.configure(size=size)
+        _bold_fonts[key] = font
+    return _bold_fonts[key]
+
+
+def fit_window(window, width: int, height: int) -> None:
+    """Size a window `width` x `height`, or smaller if the screen is smaller
+    (a laptop at 1366 x 768, or Windows set to enlarge everything), so the
+    buttons along its bottom edge can't start off the screen."""
+    width = min(width, max(400, window.winfo_screenwidth() - 40))
+    height = min(height, max(300, window.winfo_screenheight() - 110))
+    window.geometry(f"{width}x{height}")

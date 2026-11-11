@@ -159,12 +159,16 @@ def _outline_in(frame, reference, cx, cy, method, exclude, arena, x0, y0, x1, y1
     # Join pieces split by something lying across the animal: close small
     # gaps, and keep the joined shape only if it adds a real second piece.
     area = int(main.sum())
-    closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE,
-                              _kernel(round(np.sqrt(area) * BRIDGE_FRACTION)))
-    ys, xs = np.nonzero(main)
-    joined = _component_at(closed, int(xs[0]), int(ys[0]))
-    if joined is not None and int((mask & joined).sum()) >= 1.1 * area:
-        main = joined
+    # (Closing with so wide a kernel is the slowest thing in this module, and
+    # it can only matter when the square holds enough other pixels to be a
+    # second piece, so it's skipped otherwise; the result is the same.)
+    if int(mask.sum()) - area >= 0.1 * area:
+        closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE,
+                                  _kernel(round(np.sqrt(area) * BRIDGE_FRACTION)))
+        ys, xs = np.nonzero(main)
+        joined = _component_at(closed, int(xs[0]), int(ys[0]))
+        if joined is not None and int((mask & joined).sum()) >= 1.1 * area:
+            main = joined
     core = main & (dif > max(thresh, contrast * CORE_FRACTION)).astype(np.uint8)
     if int(core.sum()) < MIN_AREA // 2:
         core = main

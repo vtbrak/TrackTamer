@@ -295,7 +295,15 @@ def heatmap_figure(
     polys = match_polygons(data)
     pts = ([np.column_stack([x, y])] + [np.column_stack(p) for p in polys.values()]
            + _object_extent(data))
-    pts = np.vstack([p for p in pts if len(p)]).astype(float)
+    pts = [p for p in pts if len(p)]
+    if not pts:     # no position in any frame and nothing drawn: nothing to map
+        ax.set_title(f"Occupancy — {data.name}")
+        ax.text(0.5, 0.5, "This file has no tracked positions.", transform=ax.transAxes,
+                ha="center", va="center", color="0.4")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        return fig
+    pts = np.vstack(pts).astype(float)
     lo, hi = pts.min(axis=0), pts.max(axis=0)
     cell = max(float((hi - lo).max()), 1.0) / bins
     nx, ny = (np.ceil((hi - lo) / cell).astype(int) + 1)

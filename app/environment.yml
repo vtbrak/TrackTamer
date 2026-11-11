@@ -1,8 +1,10 @@
 # Anaconda environment for Track Tamer.
 # Built by "Install Track Tamer" (.command on Mac, .bat on Windows);
 # run the installer again after changing this file to update the environment.
-# Keep the package list in step with requirements.txt (the .venv fallback);
-# tests/regress_gui.py checks that they match.
+# Keep the packages AND their versions in step with requirements.txt (the
+# .venv fallback); tests/regress_gui.py checks that they match. The versions
+# are the exact ones the app is tested with (user, 2026-11-11), so every
+# computer gets the same ones.
 #
 # conda-forge only: Anaconda's default channel has commercial terms that can
 # apply to larger institutions; conda-forge is free for everyone.
@@ -11,15 +13,15 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
-  - python=3.12
-  - pandas
-  - numpy
-  - matplotlib
-  - openpyxl
-  - pillow
+  - python=3.12.16
+  - pandas=3.1.1
+  - numpy=2.5.4
+  - matplotlib=3.11.2
+  - openpyxl=3.1.5
+  - pillow=13.0.0
   - pip
   - pip:
-      - tkinterdnd2  # drag-and-drop; not on conda-forge
+      - tkinterdnd2==0.7.0  # drag-and-drop; not on conda-forge
       # Video reading. The pip "headless" build has no GUI toolkit of its own,
       # so it can't clash with tkinter (conda-forge's opencv pulls in Qt).
-      - opencv-python-headless
+      - opencv-python-headless==5.0.0.93

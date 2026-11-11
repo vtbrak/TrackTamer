@@ -91,6 +91,9 @@ bad = df.copy(); bad.loc[5, "MotionIndex_pct"] = np.nan; bad.loc[5, "Frame_Unrea
 one = trial_table(TrackingData("x", bad, {"Stimuli": json.dumps([{"frame": 103}])}, []))
 check("an unreadable frame is noted and left out of the peak",
       "1 unreadable" in one["Note"][0] and one["motion.index.after"][0] == 9)
+check("an unreadable frame in a window is flagged, and the amplitude is still worked out",
+      not pd.isna(one["Startle amplitude"][0])
+      and one["Startle amplitude"][0] == one["motion.index.after"][0] - one["motion.index.before"][0])
 
 # Session measures from the shown amplitudes.
 rows = [("pulse", None, None, 10), ("pulse", None, None, 8), ("pulse", None, None, 6),
@@ -174,6 +177,24 @@ try:
           data.settings["Stimulus_Source"] == "typed in")
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
+
+# A frames file that can't be used is ignored (times come from the frame
+# rate), rather than failing the video.
+from core.asr import repeated_frames
+with tempfile.TemporaryDirectory() as folder:
+    video = os.path.join(folder, "clip.mp4")
+    camera = {"timestamps_csv": "clip_frames.csv"}
+    with open(os.path.join(folder, "clip_frames.csv"), "w") as f:
+        f.write("frame,video_time_s,repeated\n0,0.0,False\n1,0.05,True\n,,\n2,0.1,False\n")
+    check("a frames file with a blank row is read without it",
+          frame_times(video, camera) == {0: 0.0, 1: 0.05, 2: 0.1}
+          and repeated_frames(video, camera) == {1})
+    with open(os.path.join(folder, "clip_frames.csv"), "w") as f:
+        f.write("frame,video_time_s,repeated\nzero,soon,maybe\n")
+    check("a frames file that isn't numbers is ignored, not an error",
+          frame_times(video, camera) is None and repeated_frames(video, camera) == set())
+    check("no frames file: no times", frame_times(video, {"timestamps_csv": "missing.csv"}) is None
+          and frame_times(video, None) is None)
 
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)

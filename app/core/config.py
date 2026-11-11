@@ -117,6 +117,11 @@ DEFAULTS: dict = {
 }
 
 
+# Settings kept as one number per test type; the GUI adds a test's entry the
+# first time the user sets it.
+_PER_TEST = ("session_minutes", "scale_cm", "review_cutoff_s")
+
+
 def _merge(defaults: dict, loaded: dict) -> dict:
     """Overlay `loaded` on `defaults`, keeping only values of a matching type."""
     out = copy.deepcopy(defaults)
@@ -128,6 +133,13 @@ def _merge(defaults: dict, loaded: dict) -> dict:
             if isinstance(value, dict):
                 # region_roles starts empty, so its user-defined keys are kept as-is.
                 out[key] = _merge(default, value) if default else dict(value)
+                if key in _PER_TEST:
+                    # One number per test: keep it for tests the defaults
+                    # don't list too (e.g. Object Recognition's scale length).
+                    for name, number in value.items():
+                        if (name not in default and isinstance(number, (int, float))
+                                and not isinstance(number, bool)):
+                            out[key][name] = float(number)
         elif isinstance(default, bool):
             if isinstance(value, bool):
                 out[key] = value

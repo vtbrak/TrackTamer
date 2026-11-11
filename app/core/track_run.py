@@ -135,7 +135,9 @@ def run_job(job: TrackJob, progress=None, should_cancel=None,
                           job.regions, job.shape, job.scale, job.reference_frames,
                           job.exclusion_count, job.fps, extra=job.extra)
     paths = save_outputs(job.path, out, reference)
-    return load_csv(paths["csv"]), paths["csv"]
+    data = load_csv(paths["csv"])
+    data.missing_at_end = result.missing_at_end     # for the finished message
+    return data, paths["csv"]
 
 
 class TrackRunner:

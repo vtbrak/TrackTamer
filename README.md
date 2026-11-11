@@ -45,9 +45,10 @@ stay.
 
 ### Without Anaconda
 The Open launchers fall back to a local Python environment (`app/.venv`), built
-and filled automatically on the first run. On Windows this needs Python 3 from
-[python.org](https://www.python.org/downloads/) (tick "Add python.exe to
-PATH" during setup).
+and filled automatically on the first run. This needs Python 3.12 or newer (the
+program's packages are pinned to exact tested versions, which need it); on
+Windows get it from [python.org](https://www.python.org/downloads/) (tick
+"Add python.exe to PATH" during setup).
 
 To run from a terminal instead:
 
@@ -317,6 +318,7 @@ TrackTamer/
 ├── app/             the program
 │   ├── core/            analysis and tracking engine (no GUI dependencies)
 │   │   ├── export.py    write _analysis.xlsx and plot images
+│   │   ├── safe_write.py  save files whole before replacing the earlier one
 │   │   ├── loader.py    read & validate CSVs, detect region columns
 │   │   ├── metrics.py   summary + time-binned metrics
 │   │   ├── gaps.py      optional filling of short unreadable-frame gaps

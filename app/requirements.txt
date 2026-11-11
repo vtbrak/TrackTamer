@@ -1,7 +1,10 @@
-pandas
-numpy
-matplotlib
-openpyxl
-tkinterdnd2
-opencv-python-headless
-pillow
+# The exact versions Track Tamer is tested with (user, 2026-11-11), so every
+# computer gets the same ones. To move to newer versions: change them here AND
+# in environment.yml, run the tests, and have testers run Install again.
+pandas==3.1.1
+numpy==2.5.4
+matplotlib==3.11.2
+openpyxl==3.1.5
+tkinterdnd2==0.7.0
+opencv-python-headless==5.0.0.93
+pillow==13.0.0

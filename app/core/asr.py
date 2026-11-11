@@ -36,6 +36,8 @@ import numpy as np
 import pandas as pd
 
 from .loader import TrackingData
+from .safe_write import write_csv
+from .tracking import crop_text
 from .video import Prep, VideoReader
 from .video_setup import ASR_TEST, VideoSetup
 
@@ -123,10 +125,10 @@ def frame_times(video_path: str, camera: dict | None) -> dict | None:
         return None
     path = os.path.join(os.path.dirname(os.path.abspath(video_path)), name)
     try:
-        table = pd.read_csv(path, usecols=["frame", "video_time_s"])
-    except (OSError, ValueError):
-        return None
-    return dict(zip(table["frame"].astype(int), table["video_time_s"].astype(float)))
+        table = pd.read_csv(path, usecols=["frame", "video_time_s"]).dropna()
+        return dict(zip(table["frame"].astype(int), table["video_time_s"].astype(float)))
+    except (OSError, ValueError, TypeError):
+        return None     # missing, or not a usable frames file
 
 
 def repeated_frames(video_path: str, camera: dict | None) -> set:
@@ -136,10 +138,11 @@ def repeated_frames(video_path: str, camera: dict | None) -> set:
         return set()
     path = os.path.join(os.path.dirname(os.path.abspath(video_path)), name)
     try:
-        table = pd.read_csv(path, usecols=["frame", "repeated"])
-    except (OSError, ValueError):
+        table = pd.read_csv(path, usecols=["frame", "repeated"]).dropna(subset=["frame"])
+        copies = table["repeated"].astype(str).str.strip().str.lower() == "true"
+        return set(table.loc[copies, "frame"].astype(int))
+    except (OSError, ValueError, TypeError):
         return set()
-    return set(table.loc[table["repeated"].astype(str).str.lower() == "true", "frame"].astype(int))
 
 
 def stimuli_from_info(info: dict | None) -> list[dict]:
@@ -236,14 +239,14 @@ def run_asr_job(job: AsrJob, progress=None, should_cancel=None):
     table.insert(0, "File", os.path.basename(job.path))
     table["Intensity_Threshold"] = job.threshold
     table["Start_Frame"] = job.start
-    table["Crop"] = ",".join(str(round(v, 1)) for v in job.prep.crop) if job.prep.crop else ""
+    table["Crop"] = crop_text(job.prep.crop)
     table["Exclusion_Shapes"] = job.exclusion_count
     table["Video_FPS"] = job.fps
     table["Stimulus_Source"] = source if stimuli else "none"
     table["Stimuli"] = ""                         # the list is long: first row only
     table.loc[table.index[0], "Stimuli"] = json.dumps(stimuli)
     path = motion_path(job.path)
-    table.to_csv(path, index=False)
+    write_csv(table, path)
     return load_motion(path), path
 
 
@@ -332,10 +335,13 @@ def trial_table(data: TrackingData, startle_ms: float = 200.0,
             end = t0 - float(s["interval_ms"]) / 1000
         before = (times > end - baseline_ms / 1000 + tiny) & (times <= end + tiny)
         notes = []
+        complete = True     # both windows lie inside the recording
         if t0 + startle_ms / 1000 > times[-1] + tiny:
             notes.append("startle window runs past the end")
+            complete = False
         if end - baseline_ms / 1000 < times[0] - tiny:
             notes.append("baseline window starts before the recording")
+            complete = False
         lost = int(bad[after | before].sum())
         if lost:
             notes.append(f"{lost} unreadable frame(s) in the windows")
@@ -351,7 +357,6 @@ def trial_table(data: TrackingData, startle_ms: float = 200.0,
                         "ReactionTime": round((float(times[peak]) - t0) * 1000, 1)})
         if not math.isnan(high_before):
             row["motion.index.before"] = round(high_before, 4)
-        complete = not any("window" in note for note in notes[:2])
         if peak is not None and not math.isnan(high_before) and complete:
             row["Startle amplitude"] = round(high_after - high_before, 4)
         rows.append(row)

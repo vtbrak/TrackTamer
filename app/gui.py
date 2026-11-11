@@ -72,7 +72,7 @@ from core import (
 )
 from core.export import output_paths, save_figure, settings_table, write_analysis_workbook
 from core.gaps import fill_gaps
-from core.video import (VIDEO_EXTENSIONS, UNREADABLE_WARN, check_readable, is_video,
+from core.video import (MISSING_STAMPS_ALLOWED, VIDEO_EXTENSIONS, UNREADABLE_WARN, check_readable, is_video,
                         video_info)
 from core.version import VERSION
 from core.video_setup import OBJECT_TEST, VideoSetup
@@ -87,9 +87,9 @@ from core.track_run import TrackRunner, existing_output, make_job
 from core.playback import load_reference
 from about import AboutDialog
 from region_dialog import RegionDialog
-from setup_window import SetupWindow, default_session_minutes
+from setup_window import SetupWindow, use_default_length
 from review_panel import ReviewPanel
-from dialogs import ask_yes_no, show_error, show_info, show_warning
+from dialogs import ask_choice, ask_yes_no, show_error, show_info, show_warning
 from tooltip import Tooltip
 
 HEATMAP_CMAPS = ["inferno", "viridis", "magma", "plasma", "hot", "jet", "gray"]
@@ -128,6 +128,9 @@ LOCKED_TIP = (
     "Locked because files have been analyzed, so every file in this load uses "
     "the same settings. Click Clear to change it."
 )
+
+
+ZONE_WAIT_MS = 500   # the Zone distance box applies this long after the last keystroke
 
 
 class ScrollPanel(ttk.Frame):
@@ -178,6 +181,19 @@ class ScrollPanel(ttk.Frame):
             else:
                 self.unbind_all(seq)
 
+    def guard_wheel(self) -> None:
+        """Stop the mouse wheel changing a dropdown's or number box's value
+        when the pointer passes over it while scrolling the panel (it would
+        change the test type without a click). The wheel scrolls the panel
+        there instead. Call once the panel's widgets are built."""
+        def over(widget):
+            for child in widget.winfo_children():
+                if isinstance(child, (ttk.Combobox, ttk.Spinbox, tk.Spinbox)):
+                    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                        child.bind(seq, lambda e: (self._wheel(e), "break")[1])
+                over(child)
+        over(self.inner)
+
     def _wheel(self, e) -> None:
         if not self.bar.winfo_manager():
             return
@@ -190,7 +206,18 @@ class ScrollPanel(ttk.Frame):
         self.canvas.yview_scroll(step, "units")
 
 
-@dataclass
+def _shown(value):
+    """A table cell as shown: blank for a missing value, and a whole number
+    without ".0" (a column of counts turns into decimals as soon as one file
+    in the list has no value for it)."""
+    if pd.isna(value):
+        return ""
+    if isinstance(value, float) and value.is_integer():   # (numpy's float64 is a float)
+        return int(value)
+    return value
+
+
+@dataclass(eq=False)   # entries are told apart by identity (one file can be listed twice)
 class FileEntry:
     """One file in the list. `summary`/`bins` are filled in by Analyze.
 
@@ -250,6 +277,10 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self._show_test_settings()
         self._enable_drop()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        if self.tk.call("tk", "windowingsystem") == "aqua":
+            # Mac: Cmd+Q and the app menu's Quit go through the same checks
+            # and saving as closing the window (otherwise they just exit).
+            self.createcommand("::tk::mac::Quit", self._on_close)
         # Settings are editable until Analyze, so keep the status bar current.
         for var in (self.fps_var, self.bin_var, self.entry_var, self.gap_var, self.adj_var,
                     self.smooth_var):
@@ -282,6 +313,24 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                                               maximum=100)
         self.track_progress.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=8)
 
+        # Export progress, in the same place while Export runs (user,
+        # 2026-11-11): the window stays usable and Cancel stops after the
+        # file being written.
+        self._exporting = False
+        self._export_cancel = False
+        self._close_after_export = False
+        self.export_bar = ttk.Frame(self, padding=(8, 4))
+        self.export_text = ttk.Label(self.export_bar, anchor=tk.W)
+        self.export_text.pack(side=tk.LEFT)
+        self.export_cancel_btn = ttk.Button(self.export_bar, text="Cancel",
+                                            command=self.cancel_export)
+        self.export_cancel_btn.pack(side=tk.RIGHT)
+        Tooltip(self.export_cancel_btn, "Stop exporting after the file being written. "
+                                        "Files already exported are kept.")
+        self.export_progress = ttk.Progressbar(self.export_bar, mode="determinate",
+                                               maximum=100)
+        self.export_progress.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=8)
+
         # Body: the left panel; the file list over the tabs on the right.
         body = self.body = ttk.Frame(self)
         body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
@@ -293,6 +342,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self.settings_panel.configure(padding=(8, 0, 6, 0))
         self._build_actions(self.settings_panel)
         self._build_settings_panel(self.settings_panel)
+        scroller.guard_wheel()
         self.content = ttk.PanedWindow(body, orient=tk.VERTICAL)
         self.content.grid(row=0, column=1, sticky="nsew", padx=(4, 8), pady=8)
         self._build_file_list(self.content)
@@ -418,7 +468,12 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                                  "with the tracked point in a zone is listed in the "
                                  "Review tab to score. Never locks: change it any time "
                                  "and the Review list and results follow.")
-        self.zone_var.trace_add("write", lambda *_: self._on_zone_change())
+        # The zone distance takes effect once typing stops (user, 2026-11-11):
+        # every analyzed file is worked out again, so not on each keystroke.
+        self._zone_job = None
+        self.zone_var.trace_add("write", lambda *_: self._zone_typed())
+        for seq in ("<Return>", "<FocusOut>"):
+            self.zone_entry.bind(seq, lambda _e: self._flush_zone_change())
 
         # Acoustic startle (ROADMAP §13), shown only for that test.
         self.asr_bar = ttk.LabelFrame(panel, text="Acoustic Startle", padding=6)
@@ -547,11 +602,12 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         wrap.rowconfigure(0, weight=1)
         wrap.columnconfigure(0, weight=1)
         self.file_tree.bind("<<TreeviewSelect>>", self._on_select)
-        for seq in ("<Control-a>", "<Command-a>"):
-            try:
-                self.file_tree.bind(seq, lambda _e: (self.select_all(), "break")[1])
-            except tk.TclError:
-                pass  # <Command-a> only exists on a Mac
+        # Select all: Cmd+A on a Mac, Ctrl+A elsewhere. (<Command-a> must not be
+        # bound on Windows: there it means Num Lock + A, so typing "a" with
+        # Num Lock on would select every file.)
+        mac = self.tk.call("tk", "windowingsystem") == "aqua"
+        for seq in ("<Control-a>",) + (("<Command-a>",) if mac else ()):
+            self.file_tree.bind(seq, lambda _e: (self.select_all(), "break")[1])
 
     CONTROL_WIDTH = 170  # the plot tabs' control column (wrap width for notes)
 
@@ -892,11 +948,14 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             text=missing if p["path_background"] == "reference" else "")
         self.heat_bg_note.configure(
             text=missing if p["heatmap_bg_mode"] == "reference" else "")
-        try:
-            self._show_figure(self.path_area, self._path_fig(entry, p))
-            self._show_figure(self.heat_area, self._heat_fig(entry, p))
-        except Exception:
-            traceback.print_exc()
+        # Each plot on its own: one failing never leaves another file's plot
+        # on screen under this file's name.
+        for area, make in ((self.path_area, self._path_fig), (self.heat_area, self._heat_fig)):
+            try:
+                self._show_figure(area, make(entry, p))
+            except Exception as exc:
+                traceback.print_exc()
+                self._clear_tab(area, f"This plot couldn't be drawn.\n\n{exc}")
 
     # The same builders draw the on-screen plots and the exported images, so
     # exports always match what's shown.
@@ -985,20 +1044,52 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             traceback.print_exc()  # settings just won't persist this time
 
     def _on_close(self) -> None:
+        if self._exporting:
+            # Finish the file being written, then close (see `export`).
+            self._close_after_export = True
+            self.cancel_export()
+            return
+        self._flush_zone_change()
         if self._runner is not None:
             if not ask_yes_no(self, "Tracking is running",
                               "Tracking is still running. Stop it and close? Videos "
                               "already finished are saved; the rest aren't tracked.",
                               yes="Stop and Close", no="Keep Tracking"):
                 return
-            self._runner.cancel()
-            self._runner.join(timeout=10)  # it stops after the current frame
+            runner = self._runner       # (it may have finished while the question was up)
+            if runner is not None:
+                runner.cancel()
+                runner.join(timeout=10)  # it stops after the current frame
             self._runner = None
+        if not self._confirm_losing_setups(self.files, "Close"):
+            return
+        if not self.review.release():
+            return
         if self._redraw_job is not None:
             self.after_cancel(self._redraw_job)
         self.review.unload()
         self._save_settings(self._fps(), self._bin_seconds())
         self.destroy()
+
+    def report_callback_exception(self, exc, val, tb) -> None:
+        """An error nothing else caught, in any button, key or timer of any
+        window: write it to the console as before, and also say so on screen
+        (one message at a time), instead of the action just silently not
+        finishing."""
+        traceback.print_exception(exc, val, tb)
+        if getattr(self, "_error_showing", False):
+            return
+        self._error_showing = True
+        try:
+            show_error(self, "Something went wrong",
+                       "Something went wrong, and the last action may not have "
+                       f"finished.\n\n{exc.__name__}: {val}\n\nNothing saved earlier "
+                       "is affected. If it keeps happening, the console window has "
+                       "the details to report.")
+        except Exception:
+            traceback.print_exc()
+        finally:
+            self._error_showing = False
 
     def _build_summary_df(self) -> pd.DataFrame:
         """Every file in the list: File, Status, then its metrics (blank until
@@ -1042,8 +1133,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             tree.column(c, width=max(80, min(420, 8 * longest + 16)), anchor=anchor,
                         stretch=False)
         for n, (_, row) in enumerate(df.iterrows()):
-            values = ["" if pd.isna(row[c]) else row[c] for c in cols]
-            tree.insert("", tk.END, iid=iids[n] if iids else None, values=values)
+            tree.insert("", tk.END, iid=iids[n] if iids else None,
+                        values=[_shown(row[c]) for c in cols])
 
     def _show_figure(self, parent, fig) -> None:
         # Clear whatever was in this tab before.
@@ -1154,7 +1245,16 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         so the video isn't opened for nothing)."""
         if self.nb.select() != str(self.review):
             return
+        self._flush_zone_change()
         entry = self._selected_entry()
+        if not self.review.release(entry.data if entry is not None else None):
+            # A video is still being saved and the user chose to keep saving:
+            # stay on that file.
+            back = next((i for i, e in enumerate(self.files)
+                         if e.data is self.review._data), None)
+            if back is not None and back != self._selected:
+                self._set_selection([back], focus=back)
+            return
         startle = self.test_var.get() == ASR_TEST
         if (startle and entry is not None and entry.data is not None
                 and is_motion_file(entry.data.path)):
@@ -1180,7 +1280,27 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                              self._current_roles([entry]), self._review_cutoff(),
                              title=entry.label,
                              zone_cm=self._zone_cm() if objects else None,
-                             min_frames=self._min_entry_frames_quiet())
+                             min_frames=self._min_entry_frames_quiet(),
+                             fps=self._analysis_fps())
+
+    def _analysis_fps(self) -> float | None:
+        """The frame rate results are worked out with: the load's once it's
+        fixed, else the Frame rate box if it holds one (no pop-up here)."""
+        if self._locked():
+            return float(self._fps_locked())
+        try:
+            v = float(self.fps_var.get())
+            return v if v > 0 else None
+        except ValueError:
+            return None
+
+    def _save_config_quietly(self) -> None:
+        """Save the settings now; if the file can't be written they just
+        don't persist this time (as in `_save_settings`)."""
+        try:
+            save_config(self.config_data)
+        except OSError:
+            traceback.print_exc()
 
     def _on_scored(self, data) -> None:
         """Scoring changed in the playback window: refresh that file's
@@ -1413,13 +1533,29 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 saved[name] = role
         self._save_settings(self._fps_locked(), self._bin_seconds_locked())
         self._update_status()
+        # Files already analyzed were analyzed with the roles as they were:
+        # work them out again, so the results (and the exported Settings
+        # sheet, which lists the roles) all use the roles now saved.
+        if any(e.analyzed for e in self.files):
+            self._reanalyze([e for e in self.files if e.analyzed])
+            self._refresh()
 
     def _on_test_type(self) -> None:
         # Only reachable while unlocked; regions are checked at Analyze.
-        self.config_data["test_type"] = self.test_var.get()
+        test = self.test_var.get()
+        self.config_data["test_type"] = test
         self._save_settings(self._fps(), self._bin_seconds())
+        # A video still on its standard session length takes the new test's
+        # (5 min for a plus maze, 60 for an open field, the whole video for
+        # startle); a length the user set is kept.
+        for e in self.files:
+            if e.video is not None and e.video.length_default not in ("", test):
+                use_default_length(e.video, self.config_data, test)
         self._show_test_settings()
-        self._update_status()
+        win = getattr(self, "_setup_win", None)
+        if win is not None and win.winfo_exists():
+            win._show_video()       # its steps and lengths follow the test too
+        self._refresh()
 
     def _show_test_settings(self) -> None:
         """Show the settings and tabs that apply to the chosen test."""
@@ -1490,7 +1626,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             return
         if 0 <= value <= 255 and value != self.config_data["asr_threshold"]:
             self.config_data["asr_threshold"] = value
-            save_config(self.config_data)
+            self._save_config_quietly()
         self._update_status()
 
     def _ms_setting(self, var, name: str, default: float) -> float:
@@ -1507,6 +1643,21 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             var.set(f"{default:g}")
             return default
 
+    def _zone_typed(self) -> None:
+        """A keystroke in the Zone distance box: apply it once typing has
+        stopped for a moment."""
+        if self._zone_job is not None:
+            self.after_cancel(self._zone_job)
+        self._zone_job = self.after(ZONE_WAIT_MS, self._flush_zone_change)
+
+    def _flush_zone_change(self) -> None:
+        """Apply the Zone distance box now (Return, leaving the box, or
+        before anything that uses it: Analyze, Export, the Review tab)."""
+        if self._zone_job is not None:
+            self.after_cancel(self._zone_job)
+            self._zone_job = None
+            self._on_zone_change()
+
     def _on_zone_change(self) -> None:
         """Save a valid zone distance and update what depends on it."""
         try:
@@ -1516,14 +1667,12 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         if v < 0 or v == self.config_data["object_zone_cm"]:
             return
         self.config_data["object_zone_cm"] = v
-        save_config(self.config_data)
+        self._save_config_quietly()
         self._update_status()
         if hasattr(self, "review"):
             self.review.zone_changed(v)
         if self.test_var.get() == OBJECT_TEST and any(e.analyzed for e in self.files):
-            for e in self.files:
-                if e.analyzed:
-                    self._analyze_entry(e)
+            self._reanalyze([e for e in self.files if e.analyzed])
             self._refresh()
 
     def _of_status(self, locked: bool) -> str:
@@ -1536,8 +1685,21 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             gap, adj = self.gap_var.get(), self.adj_var.get()
         return f", entry gap {gap} s, adjoining center {adj} s"
 
+    def _untick_stale_references(self) -> None:
+        """Every video whose reference image no longer matches its trim, crop
+        or the shared downsampling and frame count loses its Reference and
+        Tracking check ticks (`VideoSetup.untick_stale_reference`)."""
+        dsmpl = float(self.config_data["video_downsample"])
+        frames = int(self.config_data["reference_frames"])
+        changed = [e for e in self.files
+                   if e.video is not None and e.video.untick_stale_reference(dsmpl, frames)]
+        win = getattr(self, "_setup_win", None)
+        if changed and win is not None and win.winfo_exists():
+            win._update_step_list()
+
     def _refresh(self) -> None:
         """Re-sync everything that depends on the file list."""
+        self._untick_stale_references()
         if any(e.video is not None for e in self.files):
             if not self.setup_btn.winfo_manager():
                 self.setup_btn.pack(fill=tk.X, pady=(0, 4), before=self.select_all_btn)
@@ -1546,9 +1708,11 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         else:
             self.setup_btn.pack_forget()
             self.track_btn.pack_forget()
-        running = self._runner is not None
+        running = self._runner is not None or self._exporting
         for btn in (self.clear_btn, self.remove_btn, self.track_btn):
             btn.configure(state="disabled" if running else "normal")
+        for btn in (self.analyze_btn, self.export_btn):
+            btn.configure(state="disabled" if self._exporting else "normal")
         self._apply_lock()
         self._fill_file_list()
         self._show_summary()
@@ -1588,12 +1752,41 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             return
         win = getattr(self, "_setup_win", None)
         if win is not None and win.winfo_exists():
-            win.lift()
-            return
+            if [id(e) for e in win.entries] == [id(e) for e in videos]:
+                win.lift()
+                return
+            win._close()        # the list of videos changed: open it afresh
         chosen = [e for e in self._selected_entries() if e.video is not None]
         start = chosen[0] if chosen else next(
             (e for e in videos if e.data is None), videos[0])
-        self._setup_win = SetupWindow(self, videos, videos.index(start))
+        self._setup_win = None
+        try:
+            self._setup_win = SetupWindow(self, videos, videos.index(start))
+        except Exception as exc:
+            traceback.print_exc()
+            show_error(self, "The setup window couldn't be opened",
+                       f"The setup window couldn't be opened.\n\n{exc}")
+
+    def _close_setup_window(self) -> None:
+        win = getattr(self, "_setup_win", None)
+        if win is not None and win.winfo_exists():
+            win._close()
+        self._setup_win = None
+
+    def _confirm_losing_setups(self, entries, action: str) -> bool:
+        """Video setups (trim, crop, shapes, regions, scale) aren't saved
+        anywhere until the video is tracked. Before `action` throws away
+        setup work on videos not tracked yet, ask. True to go ahead."""
+        at_risk = [e for e in entries if e.video is not None and e.data is None
+                   and (e.video.steps_done or e.video.has_drawn_work())]
+        if not at_risk:
+            return True
+        return ask_yes_no(
+            self, "Setup work will be lost",
+            f"{len(at_risk)} video(s) have been set up but not tracked yet, and their "
+            "setup isn't saved anywhere else.\n\n"
+            f"{self._names(at_risk)}\n\n{action} anyway and lose that setup?",
+            yes=f"{action} Anyway", no="Cancel")
 
     def _fill_file_list(self) -> None:
         self.file_tree.delete(*self.file_tree.get_children())
@@ -1697,10 +1890,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             try:
                 if is_video(p):
                     setup = VideoSetup(path=p, info=video_info(p))
-                    setup.length_s = 60 * default_session_minutes(self.config_data,
-                                                                  self.test_var.get())
-                    if self.test_var.get() == ASR_TEST and setup.info.fps:
-                        setup.length_s = setup.info.frame_count / setup.info.fps
+                    use_default_length(setup, self.config_data, self.test_var.get())
                     setup.unreadable = check_readable(p)
                     bad, checked = setup.unreadable
                     if checked and bad / checked > UNREADABLE_WARN:
@@ -1750,6 +1940,11 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         """Empty the list and unlock the per-load settings."""
         if self._runner is not None:
             return  # the button is disabled while tracking
+        if not self._confirm_losing_setups(self.files, "Clear"):
+            return
+        if not self.review.release():
+            return
+        self._close_setup_window()
         self.files = []
         self._sel = []
         self._selected = None
@@ -1768,6 +1963,13 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             show_info(self, "No file selected", "Select files in the list first.")
             return
         gone = set(self._sel)
+        if not self._confirm_losing_setups(
+                [e for i, e in enumerate(self.files) if i in gone], "Remove"):
+            return
+        if any(self.files[i].data is self.review._data for i in gone
+               if i < len(self.files)) and not self.review.release():
+            return
+        self._close_setup_window()
         self.files = [e for i, e in enumerate(self.files) if i not in gone]
         self._sel = [0] if self.files else []
         self._selected = 0 if self.files else None
@@ -1780,6 +1982,18 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         if len(entries) > limit:
             lines += f"\n…and {len(entries) - limit} more"
         return lines
+
+    def _split_same_results(self, items, result_base, entry_of):
+        """(items to go ahead with, entries left out) where several different
+        items would write the same result files: `result_base(item)` is the
+        path their result names are built on. The same file listed twice
+        isn't a clash (callers have already merged those)."""
+        by_base: dict[str, list] = {}
+        for item in items:
+            by_base.setdefault(self._same_file_key(result_base(item)), []).append(item)
+        keep = [group[0] for group in by_base.values() if len(group) == 1]
+        clashing = [entry_of(i) for group in by_base.values() if len(group) > 1 for i in group]
+        return [i for i in items if i in keep], clashing
 
     def track(self) -> None:
         """Track the selected videos in the background, one at a time
@@ -1803,21 +2017,41 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         for e in videos:
             groups.setdefault(self._same_file_key(e.path), []).append(e)
         todo = list(groups.values())
+        # Different videos that would write the same result files (X.avi and
+        # X.mp4 both write X_LocationOutput.csv) are left out and named.
+        todo, clashing = self._split_same_results(
+            todo, lambda g: os.path.splitext(g[0].path)[0], lambda g: g[0])
+        if clashing:
+            show_warning(self, "Some videos would overwrite each other's results",
+                         "Some videos have the same name with different endings, so "
+                         "they would write the same tracking file. They weren't "
+                         f"tracked.\n\n{self._names(clashing)}\n\nRemove the ones you "
+                         "don't want from the list (or rename one), then click Track "
+                         "again.")
+            if not todo:
+                return
 
         test = self.test_var.get()
         existing = [g for g in todo if existing_output(g[0].path, test)]
         if existing:
             ending = "_MotionIndex.csv" if test == ASR_TEST else "_LocationOutput.csv"
-            use = ask_yes_no(
+            choice = ask_choice(
                 self, "Some videos are already tracked",
                 f"Some videos already have a tracking file ({ending}) "
                 f"beside them.\n\n{self._names([g[0] for g in existing])}\n\n"
                 "Use that tracking, or track them again (replacing it)?",
-                yes="Use Existing Tracking", no="Track Again",
+                ["Cancel", "Track Again", "Use Existing Tracking"],
             )
-            if use:
+            if choice in (None, "Cancel"):
+                return      # closing the question never starts tracking
+            if choice == "Use Existing Tracking":
                 errors = []
                 for g in existing:
+                    path = existing_output(g[0].path, test)
+                    if all(e.data is not None and self._same_file_key(e.data.path)
+                           == self._same_file_key(path) for e in g):
+                        todo.remove(g)      # already loaded: keep it and its results
+                        continue
                     try:
                         data = self._load_output(existing_output(g[0].path, test))
                     except Exception as exc:
@@ -1997,6 +2231,31 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             self.fps_var.set(f"{rate:g}")
         return True
 
+    def _check_locked_frame_rate(self, entries) -> bool:
+        """Later Analyzes of a load: the frame rate is already fixed, so warn
+        about files whose own video was recorded at a different one (their
+        times would be off). False if the user cancels."""
+        if self.test_var.get() == ASR_TEST:
+            return True
+        used = float(self._fps_locked())
+        off = []
+        for e in entries:
+            try:
+                fps = float(e.data.settings.get("Video_FPS", "nan"))
+            except (TypeError, ValueError):
+                continue
+            if fps > 0 and abs(fps - used) >= 0.005 and abs(round(fps, 2) - used) >= 0.005:
+                off.append(f"• {e.label}: {fps:g} fps")
+        if not off:
+            return True
+        return ask_yes_no(
+            self, "Some files have a different frame rate",
+            "Some files' videos weren't recorded at this load's frame rate "
+            f"({used:g} fps), so their times would be off.\n\n" + "\n".join(off[:10])
+            + ("\n…" if len(off) > 10 else "")
+            + "\n\nAnalyze them in a separate load (Clear first). Analyze anyway?",
+            yes="Analyze Anyway", no="Cancel")
+
     def cancel_tracking(self) -> None:
         if self._runner is not None:
             self._runner.cancel()
@@ -2045,6 +2304,13 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                     self._references.pop(msg[2].path, None)  # a new reference image
                     e.data, e.summary, e.bins = msg[2], None, None
                     e.track_state = ""
+                    # The tracking file itself may be in the list too (added
+                    # with its folder): it was just replaced, so it follows.
+                    for other in self.files:
+                        if (other.video is None and other is not e
+                                and self._same_file_key(other.path)
+                                == self._same_file_key(msg[2].path)):
+                            other.data, other.summary, other.bins = msg[2], None, None
                 elif kind == "failed":
                     e.track_state, e.track_error = "failed", msg[2]
                 elif kind == "cancelled":
@@ -2096,9 +2362,34 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             show_info(self, "Tracking finished",
                       f"Tracking finished for {done} video(s). Each has a {made} next to "
                       "it. Select them and click Analyze.")
+        self._warn_short_sessions([g[0] for g in groups])
+
+    def _warn_short_sessions(self, entries) -> None:
+        """A video that couldn't be read all the way to the end of its
+        session was tracked only up to there: say so, with how much is
+        missing, rather than leave a quietly shorter session."""
+        short = []
+        for e in entries:
+            missing = int(getattr(e.data, "missing_at_end", 0) or 0) if e.data else 0
+            fps = (e.video.info.fps if e.video is not None else 0) or 0
+            # a few frames short at the very end of a file is normal
+            if missing > max(MISSING_STAMPS_ALLOWED, fps):
+                e.data.missing_at_end = 0       # say it once
+                got = e.data.n_frames
+                short.append(f"• {e.label}: {got:,} of {got + missing:,} frames tracked"
+                             + (f" ({got / fps:.0f} s of {(got + missing) / fps:.0f} s)"
+                                if fps else ""))
+        if short:
+            show_warning(self, "Some sessions are shorter than asked for",
+                         "Some videos couldn't be read to the end of the session, so "
+                         "their tracking stops early.\n\n" + "\n".join(short)
+                         + "\n\nThe video may be damaged or shorter than its file "
+                         "says. Converting it to a new .mp4 often repairs it; then "
+                         "track it again.")
 
     def analyze(self) -> None:
         """Analyze the selected files."""
+        self._flush_zone_change()
         if not self.files:
             show_info(self, "No files", "Add files first.")
             return
@@ -2133,23 +2424,41 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             if not self._check_file_frame_rates(targets):
                 return
             self._lock_in_settings()  # the first Analyze of a load sets them
+        elif not self._check_locked_frame_rate([e for e in targets if not e.analyzed]):
+            return
         targets = self._ready_to_analyze(targets)
         if not targets:
             self._update_status()
             return
         self._warn_overlaps(targets)
 
-        fps, bin_s = self._fps_locked(), self._bin_seconds_locked()
         self.config(cursor="watch")
         self.update_idletasks()
         try:
-            for e in targets:
-                self._analyze_entry(e)
+            failed = self._reanalyze(targets)
         finally:
             self.config(cursor="")
         self._refresh()
-        self._warn_shared(targets)
-        self._warn_lost(targets)
+        done = [e for e in targets if e.analyzed]
+        self._warn_shared(done)
+        self._warn_lost(done)
+        if failed:
+            show_warning(self, "Some files couldn't be analyzed",
+                         "Some files couldn't be analyzed, so they have no results. "
+                         "The others were analyzed.\n\n" + "\n".join(failed))
+
+    def _reanalyze(self, entries) -> list[str]:
+        """Analyze each entry. One that fails is left without results and
+        reported, as a line of text per failure; the rest carry on."""
+        failed = []
+        for e in entries:
+            try:
+                self._analyze_entry(e)
+            except Exception as exc:
+                traceback.print_exc()
+                e.summary = e.bins = None
+                failed.append(f"• {e.label}: {type(exc).__name__}: {exc}")
+        return failed
 
     def _analyze_entry(self, e) -> None:
         """Work out one file's Summary row and Time Bins with this load's
@@ -2361,9 +2670,40 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             }
         return sections
 
+    def _begin_export(self) -> None:
+        self._exporting, self._export_cancel = True, False
+        self.export_progress["value"] = 0
+        self.export_cancel_btn.configure(state="normal")
+        self.export_bar.pack(side=tk.BOTTOM, fill=tk.X, before=self.body)
+        self._refresh()        # Analyze, Export, Track, Clear and Remove wait
+
+    def _end_export(self) -> None:
+        self._exporting = self._export_cancel = False
+        self.export_bar.pack_forget()
+        self._refresh()
+
+    def cancel_export(self) -> None:
+        if self._exporting:
+            self._export_cancel = True
+            self.export_cancel_btn.configure(state="disabled")
+            self.export_text.configure(text="Stopping after this file…")
+
+    def _export_paths(self, e) -> dict[str, str]:
+        """Where a file's workbook and two images go (beside the file)."""
+        if self.test_var.get() != ASR_TEST:
+            return output_paths(e.path)
+        base = os.path.splitext(e.path)[0]
+        if base.endswith("_MotionIndex"):
+            base = base[: -len("_MotionIndex")]
+        return {"analysis": base + "_analysis.xlsx", "path": base + "_trace.png",
+                "heatmap": base + "_aligned.png"}
+
     def export(self) -> None:
         """Write each selected, analyzed file's _analysis.xlsx, _path.png, and
         _heatmap.png next to its source CSV, overwriting existing files."""
+        if self._exporting:
+            return
+        self._flush_zone_change()
         selected = self._selected_entries()
         if not selected:
             show_info(self, "No file selected",
@@ -2382,21 +2722,33 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             if key not in seen:
                 seen.add(key)
                 unique.append(e)
+        # Different files that would write the same workbook and images
+        # (X.avi and X.mp4 both write X_analysis.xlsx) are left out and named.
+        unique, clashing = self._split_same_results(
+            unique, lambda e: self._export_paths(e)["analysis"], lambda e: e)
+        if clashing:
+            show_warning(self, "Some files would overwrite each other's results",
+                         "Some files would write the same result files, so they "
+                         f"weren't exported.\n\n{self._names(clashing)}\n\nRemove the "
+                         "ones you don't want from the list (or rename one), then "
+                         "export again.")
+            if not unique:
+                return
 
         plot = dict(self._plot_settings())  # the on-screen plot settings, now
-        written, errors = [], []
-        self.config(cursor="watch")
-        self.update_idletasks()
+        written, errors, workbooks = [], [], []
+        self._begin_export()
         try:
-            for e in unique:
-                out = output_paths(e.path)
+            for k, e in enumerate(unique):
+                # Between files the window catches up (it stays usable and
+                # the Cancel button works) and the bar moves on.
+                self.export_text.configure(text=f"Exporting {k + 1} of {len(unique)}: {e.label}")
+                self.export_progress["value"] = 100 * k / len(unique)
+                self.update()
+                if self._export_cancel:
+                    break
+                out = self._export_paths(e)
                 startle = self.test_var.get() == ASR_TEST
-                if startle:
-                    base = os.path.splitext(e.path)[0]
-                    if base.endswith("_MotionIndex"):
-                        base = base[: -len("_MotionIndex")]
-                    out = {"analysis": base + "_analysis.xlsx", "path": base + "_trace.png",
-                           "heatmap": base + "_aligned.png"}
                 try:
                     write_analysis_workbook(
                         out["analysis"], {k: v for k, v in e.summary.items()},
@@ -2409,6 +2761,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                     save_figure(self._path_fig(e, plot), out["path"])
                     save_figure(self._heat_fig(e, plot), out["heatmap"])
                     written.append(e)
+                    workbooks.append(out["analysis"])
                 except PermissionError:
                     errors.append(f"• {e.label}: a file is open in another program "
                                   "(e.g. the workbook in Excel). Close it and try again.")
@@ -2416,7 +2769,17 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                     errors.append(f"• {e.label}: {exc}")
                     traceback.print_exc()
         finally:
-            self.config(cursor="")
+            stopped = self._export_cancel
+            self._end_export()
+        if self._close_after_export:      # the window was closed during the export
+            self._close_after_export = False
+            self._on_close()
+            return
+        if stopped:
+            left = len(unique) - len(written) - len(errors)
+            show_info(self, "Export stopped",
+                      f"Export stopped. {len(written)} file(s) were exported and are "
+                      f"kept; {left} weren't exported.")
 
         skipped = len(selected) - len(targets)
         if written:
@@ -2429,8 +2792,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 f"{len(errors)} file(s) couldn't be exported.\n\n" + "\n".join(errors),
             )
         if written:
-            names = "\n".join(f"• {os.path.basename(output_paths(e.path)['analysis'])}"
-                              for e in written[:10])
+            names = "\n".join(f"• {os.path.basename(w)}" for w in workbooks[:10])
             if len(written) > 10:
                 names += f"\n…and {len(written) - 10} more"
             note = ("" if not skipped
@@ -2438,7 +2800,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                          "they weren't exported.")
             show_info(
                 self, "Export finished",
-                f"Exported {len(written)} file(s) next to their CSVs.\n\n"
+                f"Exported {len(written)} file(s), each next to its own file.\n\n"
                 + ("Each has an _analysis.xlsx workbook (Summary, Trials, and Settings "
                    "sheets) plus _trace.png and _aligned.png images.\n\n"
                    if self.test_var.get() == ASR_TEST else

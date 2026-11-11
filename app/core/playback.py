@@ -29,6 +29,7 @@ import pandas as pd
 from .loader import TrackingData
 from .objects import object_at
 from .regions import match_polygons
+from .safe_write import replacing
 from .video import (VIDEO_EXTENSIONS, Prep, crop_frame, frame_times, grab_frame,
                     video_info)
 
@@ -206,6 +207,8 @@ def open_playback(data: TrackingData, video_hint: str | None = None) -> Playback
         pass
     if not fps or not np.isfinite(fps):
         fps = video_info(video).fps
+    if not fps or not np.isfinite(fps) or fps <= 0:
+        fps = 20.0      # a video that doesn't give its rate: times are then nominal
     return Playback(data, video, prep, start, fps)
 
 
@@ -319,9 +322,36 @@ def write_tracked_video(pb: Playback, out_path: str | None = None, trail_frames:
     """Write the session with the tracking drawn on, at the video's real
     frame rate, as `<name>_tracked.mp4` beside the video (overwriting).
     `objects` (Object Recognition) are drawn with zones `zone_px` out from
-    their edges. Returns the path, or None if cancelled (the partial file is
-    removed)."""
+    their edges. Returns the path, or None if cancelled (nothing is left
+    behind, and an earlier tracked video stays as it was)."""
     out_path = out_path or tracked_video_path(pb.video)
+    # Written under a temporary name and put in place only when complete, so
+    # cancelling or a failure partway keeps an earlier tracked video.
+    kept = None
+    with replacing(out_path) as tmp:
+        if not _write_tracked(pb, tmp, trail_frames, show_regions, progress,
+                              should_cancel, objects, zone_px, show_body):
+            if os.path.exists(tmp):
+                os.remove(tmp)      # cancelled: nothing is put in place
+            return None
+        # The earlier video may be open in a player (Windows then refuses to
+        # replace it): keep the finished one under another name rather than
+        # throw the whole render away.
+        try:
+            os.replace(tmp, out_path)
+        except PermissionError:
+            kept = os.path.splitext(out_path)[0] + " (new).mp4"
+            os.replace(tmp, kept)
+    if kept:
+        raise ValueError(f"The video was made, but {os.path.basename(out_path)} is open in "
+                         f"another program and couldn't be replaced. The new one is saved "
+                         f"as {os.path.basename(kept)}.")
+    return out_path
+
+
+def _write_tracked(pb: Playback, out_path: str, trail_frames, show_regions, progress,
+                   should_cancel, objects, zone_px, show_body) -> bool:
+    """Write the video to `out_path`. True when finished, False if cancelled."""
     cap = cv2.VideoCapture(pb.video)
     writer = None
     try:
@@ -360,11 +390,9 @@ def write_tracked_video(pb: Playback, out_path: str | None = None, trail_frames:
                 progress(n, n)
             if writer is None:
                 raise ValueError("No frames of the video could be read.")
-            return out_path
+            return True
     finally:
         cap.release()
         if writer is not None:
             writer.release()
-    if os.path.exists(out_path):  # cancelled: don't leave half a video
-        os.remove(out_path)
-    return None
+    return False

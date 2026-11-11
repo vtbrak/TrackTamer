@@ -138,6 +138,21 @@ check("ears that agree only half the time earn none",
       pose.clue_weights(mixed, np.zeros(40))["ears"] == 0.0)
 check("too few frames to measure: ears left out, the others keep a small weight",
       pose.clue_weights(mixed[:5], np.zeros(5)) == {"taper": pose.TAPER_WEIGHT, "ears": 0.0, "travel": pose.TRAVEL_WEIGHT})
+# Joining split pieces is only worked out when there is a second piece to join.
+calls = []
+real_morph = cv2.morphologyEx
+def counted(src, op, kernel, *a, **k):
+    if op == cv2.MORPH_CLOSE and kernel.shape[0] > 15:
+        calls.append(kernel.shape[0])
+    return real_morph(src, op, kernel, *a, **k)
+cv2.morphologyEx = counted
+whole = pose.find_points(animal(120, 100, 90)[0], ref, 120, 100)
+n_whole = len(calls); calls.clear()
+split = pose.find_points(barred, ref, 120, 100)
+n_split = len(calls)
+cv2.morphologyEx = real_morph
+check("the wide joining step runs for an animal split in two, and is skipped for one in one piece",
+      whole is not None and split is not None and n_whole == 0 and n_split >= 1)
 check("one misleading tail frame is outvoted", pose.SWITCH_COST > pose.TAIL_WEIGHT > pose.TAPER_WEIGHT + pose.TRAVEL_WEIGHT)
 check("area check drops outlines far from the usual size",
       list(pose.area_filter(np.array([100.0] * 12 + [20.0, 400.0, np.nan]))) == [True] * 12 + [False] * 3)

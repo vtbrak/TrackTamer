@@ -11,6 +11,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from dialogs import bold_font
+
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from core import ROLE_LABELS, auto_role, check_roles, regions_figure
@@ -52,7 +54,7 @@ class RegionDialog(tk.Toplevel):
         table = ttk.Frame(body)
         table.grid(row=1, column=0, sticky="nw", padx=(0, 16))
         for col, head in enumerate(("Region", "% of session", "Suggested", "Role")):
-            ttk.Label(table, text=head, font=("TkDefaultFont", 0, "bold")).grid(
+            ttk.Label(table, text=head, font=bold_font()).grid(
                 row=0, column=col, sticky="w", padx=4, pady=(0, 4)
             )
         for i, (name, pct) in enumerate(regions, start=1):

@@ -38,6 +38,17 @@ tracks videos itself (adapted from ezTrack).
   for at-risk pieces (launcher, dialog styling, DnD, fonts).
 - **Never run `pip install --upgrade pip` in the venv** — it corrupted pip before
   and required a venv rebuild. Install deps straight from `requirements.txt`.
+- **The install files name the exact package versions that were tested**
+  (user, 2026-11-11, a rule for every app in the suite: "the install file
+  should request and build the environment with version of the packages
+  that have been tested. That is the whole point of having them install
+  their own environments"). `environment.yml` and `requirements.txt` pin
+  every package to one version, the same in both (the regression test
+  checks, and checks the running environment has them). A release that
+  needs new or newer packages changes the pins, and Install updates the
+  **existing** environment to match (`conda env update --prune`); it never
+  needs rebuilding from scratch. Never leave a package unpinned. Run the
+  tests in both environments before changing a pin.
 
 ## Current state (what's built)
 - `core/`: GUI-free engine. `loader.py` (read CSV, detect region columns),
@@ -59,6 +70,45 @@ tracks videos itself (adapted from ezTrack).
 - `core/export.py`: writes each analyzed file's `_analysis.xlsx` (Summary,
   Time Bins, Settings sheets), `_path.png`, and `_heatmap.png` next to its CSV.
 - `region_dialog.py`: the Match regions dialog.
+- **Saving (code review, 2026-11-10):** every file written beside the user's
+  data goes through `core/safe_write.py` (`replacing`, `write_csv`): written
+  whole under a temporary name, then put in place, so a failed or cancelled
+  save never damages the earlier file. Never write a result file directly.
+  The tracking file's `Crop` is recorded exactly (`tracking.crop_text`).
+- **Object scoring** is placed by **video frame** (`Start_VideoFrame` in
+  `_ObjectScoring.csv`), so it stays on the same moments when a video is
+  tracked again from another start; "no interaction" marks belong to the
+  visit that contains them (they survive a change of zone distance);
+  scoring that can't be saved is kept in memory and used by the results
+  (`core/objects.py`). The Review tab and scoring file use the analysis
+  frame rate (the Frame rate box), as the results do.
+- **Session length:** a video keeps the test's standard length until the
+  user types one or sets the end (`VideoSetup.length_default`); a standard
+  length follows the test type when it changes. An end placed with "Set end
+  here" stays on its frame when the start moves (`end_placed`); an end past
+  the test's session length asks first.
+- **Decided 2026-11-11 (ROADMAP "Code review"):** time bins are cut true to
+  the clock (`metrics._bin_ranges`); a reference image made from an older
+  trim, crop, downsampling or frame count unticks setup steps 3 and 4
+  (`VideoSetup.untick_stale_reference`); Track and Export stop and name files
+  that would write the same result files; Export runs with a progress bar
+  and Cancel; the Zone distance box applies once typing stops; a video save
+  in progress is asked about before it's stopped; Cancel start (Esc) in
+  object scoring.
+- **Portable GUI helpers in `dialogs.py`:** `ask_choice` (several buttons;
+  closing the window cancels: use it when neither answer is safe to
+  assume), `bold_font` (never write `("TkDefaultFont", 11, "bold")`: that
+  names a typeface that doesn't exist) and `fit_window` (window sizes that
+  fit small screens). Errors nothing else catches are shown on screen
+  (`report_callback_exception` in `gui.py`).
+- **Tests:** run all of `app/tests/test_*.py` and `regress_gui.py` after
+  changes, in both `app/.venv` and the `track-tamer` conda environment (the
+  launcher uses the conda one). The practice video for the GUI tests is cut
+  from the plus maze example (`tests/samples.py` `practice_clip`; ezTrack's
+  practice videos are gone, user 2026-11-10). `test_saving.py`,
+  `test_edge_cases.py` and `test_gui_fixes.py` hold one check per bug fixed
+  in the 2026-11-10 review; ROADMAP "Code review (2026-11-10)" lists what
+  was fixed and what was left for the user to decide.
 - `tests/regress_gui.py`: workflow regression test. Run it after GUI changes
   (`app/.venv/bin/python app/tests/regress_gui.py`); it needs the Examples files.
 - **Jumping to a video frame:** never use `cap.set(cv2.CAP_PROP_POS_FRAMES)`
@@ -71,6 +121,10 @@ tracks videos itself (adapted from ezTrack).
   Files tracked before that with a start after 0 may be a frame off and
   should be re-tracked (the Open Field example is one). Only the reference
   image keeps OpenCV's own jump (`read_near`). `tests/test_seek.py` checks it.
+  A damaged video's timestamp list stops at the damage; a list much shorter
+  than the file's frame count is not used (2026-11-11), or tracking would
+  silently stop there. Tracking reports frames it couldn't read at the end
+  of a session (`TrackResult.missing_at_end`) and the app warns about them.
 - **Anaconda install (ROADMAP §14, built 2026-11-03):** `environment.yml`
   (env `track-tamer`, conda-forge only; `tkinterdnd2` via its `pip:`
   section), `find_conda.sh` / `find_conda.bat` (shared conda finders),
