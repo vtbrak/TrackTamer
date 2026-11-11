@@ -83,6 +83,20 @@ copies = df.copy(); copies["Repeated"] = [i == 4 for i in range(12)]
 t = trial_table(TrackingData("x", copies, {"Stimuli": json.dumps([{"frame": 103}])}, []))
 check("a repeated frame can't be the peak, and the trial says so",
       t.iloc[0]["motion.index.after"] == 5 and "1 repeated" in t.iloc[0]["Note"])
+from core.asr import asr_summary, real_frame_rate
+row, _ = asr_summary(TrackingData("x", copies, {"Stimuli": json.dumps([{"frame": 103}])}, []))
+check("the Summary counts repeated frames; a few repeats aren't flagged",
+      row["RepeatedFrames"] == 1 and real_frame_rate(row) is None)
+row, _ = asr_summary(fake([{"frame": 103}]))
+check("a file with no Repeated column has none", row["RepeatedFrames"] == 0
+      and real_frame_rate(row) is None)
+slow = df.copy(); slow["Repeated"] = [i % 3 != 0 for i in range(12)]
+row, _ = asr_summary(TrackingData("x", slow, {"Stimuli": json.dumps([{"frame": 103}])}, []))
+check("most frames repeated: flagged, with the real frames a second (4 in 1.1 s)",
+      row["RepeatedFrames"] == 8 and abs(real_frame_rate(row) - 4 / 1.1) < 1e-9)
+half = df.copy(); half["Repeated"] = [i % 2 == 0 for i in range(12)]
+row, _ = asr_summary(TrackingData("x", half, {"Stimuli": json.dumps([{"frame": 103}])}, []))
+check("exactly half repeated isn't 'most'", real_frame_rate(row) is None)
 t = trial_table(fake([{"frame": 100}, {"frame": 111}, {"frame": 500}]))
 check("windows outside the recording leave the amplitude blank and say why",
       pd.isna(t["Startle amplitude"]).all()

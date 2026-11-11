@@ -429,6 +429,24 @@ def session_measures(trials: pd.DataFrame, block_trials: int = 10) -> dict:
     return out
 
 
+def repeated_count(data: TrackingData) -> int:
+    """How many of the file's frames the recording app marked as copies."""
+    if "Repeated" not in data.df.columns:
+        return 0
+    return int(data.df["Repeated"].to_numpy(dtype=bool).sum())
+
+
+def real_frame_rate(summary: dict) -> float | None:
+    """The frames a second that aren't copies, when MOST of a file's frames
+    are copies (the camera ran slower than the video's frame rate, as Boom Box
+    did on a Mac before 1.3.4); None for any other file."""
+    frames, copies = summary.get("Frames") or 0, summary.get("RepeatedFrames") or 0
+    length = summary.get("Duration_s") or 0
+    if not frames or copies <= frames / 2 or not length:
+        return None
+    return (frames - copies) / length
+
+
 def asr_summary(data: TrackingData, startle_ms: float = 200.0, baseline_ms: float = 200.0,
                 block_trials: int = 10) -> tuple[dict, pd.DataFrame]:
     """(the Summary row, the Trials table) for one file."""
@@ -442,6 +460,7 @@ def asr_summary(data: TrackingData, startle_ms: float = 200.0, baseline_ms: floa
         "Frames": data.n_frames, "Duration_s": round(length, 2),
         "FPS": round((len(times) - 1) / length, 3) if length else float("nan"),
         "UnreadableFrames": int(data.unreadable.sum()),
+        "RepeatedFrames": repeated_count(data),
         "MotionIndex_SessionMean_pct": round(float(np.nanmean(values)), 4)
         if np.any(~np.isnan(values)) else float("nan"),
         "AnalyzedPixels": int(data.df["Total_px"].max()),

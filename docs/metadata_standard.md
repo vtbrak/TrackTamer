@@ -340,8 +340,8 @@ Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
 `Prepulse Inhibition`, `Startle Habituation`); arena `ASR1`, camera label
 `Side`. App-only fields in `boom_box`. Its full data guide is
 `app/docs/TRACK_TAMER_DATA.md` in its repository
-(github.com/vtbrak/BoomBox), describing Boom Box 1.3.3 (reported by Boom Box,
-2026-11-11).
+(github.com/vtbrak/BoomBox), describing Boom Box 1.3.4 (reported by Boom Box,
+2026-11-11; still schema 1, nothing removed or renamed since 1.3.3).
 
 **Matches schema 1 (draft).** What Track Tamer needs to know from the guide:
 - **Stimuli.** Since Boom Box 1.2 each `stimuli` entry with a pulse carries
@@ -363,7 +363,7 @@ Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
   | `Tone Volume Sensitivity` (was `ASR Standard`): 15 tones at 105 dB, 4 to 20 kHz | left out | `pulse_freq_hz` |
   | `Startle Habituation`: 100 tones at 8 kHz, 115 dB | `Startle Habituation` | stimulus order |
   | `Hearing Test`: 36 tones at 8 kHz, 40 to 120 dB, played in silence | left out | `pulse_db` |
-  | `I/O`: white-noise bursts at 70 to 120 dB plus no-stimulus trials | left out | `pulse_db` |
+  | `I/O` (since 1.3.4): 40 ms white-noise bursts at 70, 80, 90, 100, 110 and 120 dB plus a no-stimulus trial, in 5 shuffled blocks (35 trials), one every 15 s from 300 s | left out | `pulse_db`, with the no-stimulus trials as the baseline |
   | `PPI Default` and other PPI protocols | `Prepulse Inhibition` | `type`, `prepulse_db`, `interval_ms` |
 
   Levels can differ from stimulus to stimulus, so read `pulse_db` from each
@@ -372,6 +372,33 @@ Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
   habituation by trial order; **it doesn't yet group by pulse level**
   (`pulse_db`), which Hearing Test and I/O sessions need (not built; the
   level is in the Trials table for each trial).
+
+  In an `I/O` session Boom Box's own trial types are `startle` and
+  `no_stim`. In `stimuli` a startle trial is `type` `pulse` with
+  `pulse_stimulus` `noise` (so no `pulse_freq_hz`), and a no-stimulus trial
+  is `type` `none` with no pulse fields (checked in Boom Box's guide and
+  code, 2026-11-11), so `stimuli` still lines up with `boom_box.trials` by
+  position.
+- **Where a protocol comes from** (since 1.3.4): `boom_box.protocol_reference`
+  is text, or `null` when none was given: the paper or procedure the
+  protocol's design comes from, as DOI or web links. Several are separated
+  by `; `, each followed by a short note in brackets, e.g.
+  `https://doi.org/10.3389/fnint.2013.00103 (habituation design);
+  https://doi.org/10.1016/j.jneumeth.2025.110497 (choice of the 8 kHz tone
+  at 115 dB)`. Track Tamer doesn't read it yet (it could go on the exported
+  Settings sheet; not built).
+- **Mac recordings made before 1.3.4 at 1280x720 really ran at 10 fps.** The
+  video is still 30 frames per second at an even rate, with about 2 of every
+  3 frames a repeat: `repeated_frames` is about two-thirds of `frames`, and
+  `_frames.csv` marks each repeat. Times and stimulus frames are still
+  right. From 1.3.4 Mac capture runs at the full rate (a 30 fps test had no
+  repeats). **Track Tamer today** leaves repeated frames out when it looks
+  for a startle peak and notes how many it left out on each trial, so these
+  sessions are read correctly, but a 200 ms window then holds only about 2
+  real frames, so the peak and reaction time are coarse. The Summary
+  counts them (`RepeatedFrames`), and **Analyze warns when more than half of
+  a video's frames are repeats**, with the share and the real frames a
+  second (built 2026-11-11).
 - **Not yet checked** with the lab's camera in a real session, or on Windows
   (Boom Box's own status).
 

@@ -166,6 +166,22 @@ app.clear_files(); app.add_files([os.path.join(tmp, "clip_MotionIndex.csv")]); a
 app._set_selection([0], focus=0); app.analyze(); app.update()
 check("a saved motion index file can be added and analyzed without the video",
       app.files[0].analyzed and app.files[0].summary["ASR_Trials"] == 1)
+check("a video with no repeated frames isn't warned about", "Most frames are repeats" not in log)
+# A camera that really ran at a third of the video's rate (Boom Box on a Mac
+# before 1.3.4): two of every three frames are copies.
+slow = pd.read_csv(os.path.join(tmp, "clip_MotionIndex.csv"))
+slow["Repeated"] = [i % 3 != 0 for i in range(len(slow))]
+slow.to_csv(os.path.join(tmp, "slow_MotionIndex.csv"), index=False)
+app.clear_files(); app.add_files([os.path.join(tmp, "slow_MotionIndex.csv")]); app.update()
+shown = []
+gui.show_warning = lambda p, t, m, **k: (log.append(t), shown.append(m))
+log.clear(); app._set_selection([0], focus=0); app.analyze(); app.update()
+row = app.files[0].summary
+check("most frames repeated: Analyze warns, with the share and the real frame rate",
+      "Most frames are repeats" in log and row["RepeatedFrames"] == sum(slow["Repeated"])
+      and "(66%)" in shown[-1] and "real frames a second" in shown[-1])
+print("   " + shown[-1].split("\n\n")[1] if shown else "")
+check("the repeat count is in the Summary", "RepeatedFrames" in app.files[0].summary)
 app.destroy()
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"\n{fails} failure(s)")

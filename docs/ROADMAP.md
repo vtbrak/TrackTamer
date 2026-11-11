@@ -1323,6 +1323,11 @@ Trials / Motion Trace / Aligned Trials; tests `test_asr.py`, `test_asr_gui.py`).
 - Motion index at frame k belongs to frame k's time, so the startle window
   is the frames after the stimulus. Windows run on measured times
   (`_frames.csv`, stimulus `video_time_s`). Repeated frames can't be a peak.
+  The Summary counts them (`RepeatedFrames`), and Analyze warns when more
+  than half of a video's frames are repeats, with the share and the real
+  frames a second (user, 2026-11-11: Boom Box on a Mac before 1.3.4 really
+  recorded 10 frames a second at 1280x720, so about 2 of every 3 frames are
+  repeats and a 200 ms window holds only about 2 real frames).
 - Output headings from the document: Pixel.change, motion.index.after, FrameNo,
   Time.startle, ReactionTime (ms, stimulus to peak), Startle amplitude; plus
   motion.index.before. **Direction left out** until its meaning is known.
