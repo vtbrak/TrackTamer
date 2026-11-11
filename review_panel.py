@@ -45,6 +45,9 @@ TRAIL_SECONDS = 1.0
 SKIP_SECONDS = 10
 MARKER_COLOR = "#ff2828"
 TRAIL_COLOR = "#ffc828"
+NOSE_COLOR = "#ff2828"      # nose, center and rear end (ROADMAP §17)
+CENTER_COLOR = "#ffe600"
+REAR_COLOR = "#00a0ff"
 ROI_COLOR = "#5adc5a"
 OBJECT_COLOR = "#ff9f1a"
 ZONE_COLOR = "#ffffff"
@@ -269,6 +272,14 @@ class PlaybackWindow(tk.Toplevel):
         ttk.Checkbutton(bar2, text="Objects" if self.scorer else "Regions",
                         variable=self.roi_var,
                         command=self._redraw).pack(side=tk.LEFT, padx=(8, 0))
+        self.body_var = tk.BooleanVar(value=True)
+        if self.pb.has_body_points:
+            body = ttk.Checkbutton(bar2, text="Nose and rear end", variable=self.body_var,
+                                   command=self._redraw)
+            body.pack(side=tk.LEFT, padx=(8, 0))
+            Tooltip(body, "Show the nose (red) and the rear end (blue) beside the "
+                          "center (yellow). They are blank in frames where they "
+                          "couldn't be told.")
         self.save_btn = ttk.Button(bar2, text="Save as video…", command=self.save_video)
         self.save_btn.pack(side=tk.RIGHT)
         shown = "objects and their zones" if self.scorer else "regions"
@@ -347,9 +358,20 @@ class PlaybackWindow(tk.Toplevel):
                     c.create_line(*c.to_screen(*a), *c.to_screen(*b), fill=TRAIL_COLOR,
                                   width=2)
         pos = pb.position(row)
+        show_body = pb.has_body_points and self.body_var.get()
+        body = pb.body_points(row) if show_body else None
+        if body:
+            (nx, ny), (rx, ry) = c.to_screen(*body[0]), c.to_screen(*body[1])
+            c.create_line(rx, ry, nx, ny, fill="white", width=1)
+            c.create_oval(rx - 5, ry - 5, rx + 5, ry + 5, fill=REAR_COLOR,
+                          outline="white", width=1)
+            c.create_oval(nx - 5, ny - 5, nx + 5, ny + 5, fill=NOSE_COLOR,
+                          outline="white", width=1)
         if pos:
             sx, sy = c.to_screen(*pos)
-            c.create_oval(sx - 6, sy - 6, sx + 6, sy + 6, fill=MARKER_COLOR,
+            size = 5 if show_body else 6
+            c.create_oval(sx - size, sy - size, sx + size, sy + size,
+                          fill=CENTER_COLOR if show_body else MARKER_COLOR,
                           outline="white", width=1)
 
     def _update_info(self, unread_video: bool = False) -> None:
@@ -361,6 +383,8 @@ class PlaybackWindow(tk.Toplevel):
             parts.append("unreadable frame (no position)")
         elif self.startle is None and pb.position(row) is None:
             parts.append("no position found")
+        if pb.has_body_points and pb.position(row) is not None and pb.body_points(row) is None:
+            parts.append("nose and rear end not found")
         elif self.startle is not None:
             value = self.startle.values[row]
             parts.append("no motion index" if value != value else f"motion index {value:.4f}%")
@@ -462,6 +486,7 @@ class PlaybackWindow(tk.Toplevel):
         cancel = threading.Event()
         state = {"done": 0, "total": self.pb.n_frames, "result": None, "error": None}
         trail, rois, pb = self._trail_frames(), bool(self.roi_var.get()), self.pb
+        show_body = bool(self.body_var.get())
         objects = list(self.scorer.objects) if self.scorer is not None and rois else None
         zone_px = self.scorer.zone_px if self.scorer is not None else 0.0
 
@@ -469,7 +494,7 @@ class PlaybackWindow(tk.Toplevel):
             try:
                 state["result"] = write_tracked_video(
                     pb, trail_frames=trail, show_regions=rois,
-                    objects=objects, zone_px=zone_px,
+                    objects=objects, zone_px=zone_px, show_body=show_body,
                     progress=lambda d, t: state.update(done=d, total=t),
                     should_cancel=cancel.is_set)
             except Exception as exc:

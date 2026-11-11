@@ -29,6 +29,8 @@ from .loader import TrackingData, load_csv
 from .tracking import (Region, Scale, TrackingParams, assemble_output, make_reference,
                        save_outputs, track_video)
 from .video import Prep
+from .pose import arena_mask
+from .regions import auto_role
 from .asr import ASR_TEST, MOTION_SUFFIX, AsrJob, run_asr_job
 from .objects import objects_to_text
 from .video_setup import OBJECT_TEST, VideoSetup
@@ -51,6 +53,24 @@ class TrackJob:
     exclusion_count: int
     fps: float
     extra: dict | None = None         # more settings columns (object recognition)
+    # Nose and rear end (ROADMAP §17): the drawn regions as (xs, ys, kind)
+    # that limit the animal's outline (plus maze only), and the open arms'
+    # margin in pixels. See core/pose.py `arena_mask`.
+    arena_parts: list | None = None
+    arena_margin: float = 0.0
+
+
+HEAD_DIP_MARGIN_CM = 2.0     # how far past an open arm's edge the outline may reach
+
+
+def arena_parts(regions: list[Region], test: str) -> list | None:
+    """The plus maze's regions as outline limits: open arms widened (head
+    dips), closed arms and the center kept to their floor (their walls mirror
+    the animal). Other tests have no limit."""
+    if test != "Elevated Plus Maze" or not regions:
+        return None
+    return [(list(r.xs), list(r.ys), "open" if auto_role(r.name) == "open_arm" else "floor")
+            for r in regions]
 
 
 def make_job(setup: VideoSetup, params: TrackingParams, dsmpl: float,
@@ -75,6 +95,9 @@ def make_job(setup: VideoSetup, params: TrackingParams, dsmpl: float,
         exclusion_count=len(setup.exclusions),
         fps=float(setup.info.fps or 0),
         extra=object_settings(setup, dsmpl) if test == OBJECT_TEST else None,
+        arena_parts=arena_parts(setup.tracking_regions(dsmpl, test), test),
+        arena_margin=(HEAD_DIP_MARGIN_CM / setup.scale(dsmpl).cm_per_px
+                      if setup.scale(dsmpl) else 0.0),
     )
 
 
@@ -99,8 +122,11 @@ def run_job(job: TrackJob, progress=None, should_cancel=None,
                                    num_frames=job.reference_frames)
     if should_cancel and should_cancel():
         return None
+    arena = arena_mask(job.shape, job.arena_parts or [], job.arena_margin, reference,
+                       job.params.method)
     result = track_video(job.path, reference, job.params, job.prep, job.start, job.end,
-                         job.mask, progress=progress, should_cancel=should_cancel)
+                         job.mask, progress=progress, should_cancel=should_cancel,
+                         arena=arena)
     if result.cancelled:
         return None
     if result.df is None or result.df.empty:

@@ -120,7 +120,8 @@ def load_csv(path: str) -> TrackingData:
         )
 
     # Numeric position / distance columns.
-    for col in ["Frame", "X", "Y", "Distance_px", "Distance_cm"]:
+    for col in ["Frame", "X", "Y", "Distance_px", "Distance_cm",
+                "Nose_X", "Nose_Y", "Rear_X", "Rear_Y"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 

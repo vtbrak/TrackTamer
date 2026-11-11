@@ -33,9 +33,12 @@ import cv2
 import numpy as np
 import pandas as pd
 
+from .pose import find_points, resolve
 from .video import Prep, VideoReader, polygon_mask
 
 METHODS = ("dark", "light", "abs")  # animal darker / lighter / either
+# Nose and rear end (ROADMAP §17), beside X and Y (the center), same pixels.
+BODY_POINT_COLUMNS = ("Nose_X", "Nose_Y", "Rear_X", "Rear_Y")
 
 
 @dataclass
@@ -154,28 +157,45 @@ class TrackResult:
 def track_video(path: str, reference: np.ndarray, params: TrackingParams,
                 prep: Prep | None = None, start: int = 0, end: int | None = None,
                 mask: np.ndarray | None = None, progress=None,
-                should_cancel=None) -> TrackResult:
+                should_cancel=None, body_points: bool = True,
+                arena: np.ndarray | None = None) -> TrackResult:
     """Track frames start..end. `progress(done, total)` is called now and
     then; `should_cancel()` returning True stops early (result df is None).
 
     Returns ezTrack's per-frame columns (Frame counts from 0 at `start`):
-    X, Y, Distance_px, plus Frame_Unreadable."""
+    X, Y, Distance_px, plus Frame_Unreadable.
+
+    With `body_points`, the nose and rear end are found in each frame too
+    (core/pose.py; columns Nose_X, Nose_Y, Rear_X, Rear_Y, blank where they
+    can't be told). `arena` (True inside) limits the animal's outline for
+    that step only; X and Y are worked out exactly as without it."""
     prep = prep or Prep()
     with VideoReader(path, prep) as reader:
         end = reader.frame_count if end is None else min(end, reader.frame_count)
         total = max(end - start, 0)
         xs, ys, bad = [], [], []
         prior = None
+        half = int(round(params.window_size * (prep.dsmpl if prep.dsmpl < 1 else 1) * 0.75))
+        pts = []            # per frame: the animal's two ends, or None
         for done, (_index, frame) in enumerate(reader.frames(start, end)):
             if should_cancel and should_cancel():
                 return TrackResult(None, sum(bad), cancelled=True)
             if frame is None:
                 xs.append(np.nan); ys.append(np.nan); bad.append(True)
+                pts.append(None)
             else:
                 y, x, _ = locate(frame, reference, params, mask, prior, prep.dsmpl)
                 xs.append(x); ys.append(y); bad.append(False)
                 if np.isfinite(x) and np.isfinite(y):
                     prior = (int(np.around(y)), int(np.around(x)))
+                found = None
+                if body_points and np.isfinite(x) and np.isfinite(y):
+                    try:
+                        found = find_points(frame, reference, x, y, params.method,
+                                            half, mask, arena)
+                    except Exception:   # an odd outline must never stop tracking
+                        found = None
+                pts.append(found)
             if progress and done % 25 == 0:
                 progress(done, total)
         if progress:
@@ -191,6 +211,10 @@ def track_video(path: str, reference: np.ndarray, params: TrackingParams,
         "Distance_px": distance,
         "Frame_Unreadable": bad,
     })
+    if body_points and len(x):
+        p = resolve(pts, np.column_stack([x, y]))
+        for k, name in enumerate(BODY_POINT_COLUMNS):
+            df[name] = p[:, k]
     return TrackResult(df, int(sum(bad)))
 
 
@@ -256,6 +280,9 @@ def assemble_output(video_path: str, tracked: pd.DataFrame, params: TrackingPara
     if scale is not None:
         df["Distance_cm"] = tracked["Distance_px"] * scale.cm_per_px
     df["Frame_Unreadable"] = tracked["Frame_Unreadable"]
+    for name in BODY_POINT_COLUMNS:
+        if name in tracked.columns:
+            df[name] = tracked[name].round(2)
     df["Method"] = params.method
     df["Downsample"] = float(prep.dsmpl)
     df["Crop"] = ",".join(str(round(v, 1)) for v in prep.crop) if prep.crop else ""

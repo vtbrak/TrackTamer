@@ -36,6 +36,9 @@ TRAIL_BGR = (40, 200, 255)      # amber
 ROI_BGR = (90, 220, 90)         # green
 OBJECT_BGR = (26, 159, 255)     # orange, as in the playback window
 ZONE_BGR = (255, 255, 255)      # white
+NOSE_BGR = (40, 40, 255)        # red
+CENTER_BGR = (0, 230, 255)      # yellow (the center, when nose and rear are shown)
+REAR_BGR = (255, 160, 0)        # blue
 
 
 def find_video(data: TrackingData, hint: str | None = None) -> str | None:
@@ -131,6 +134,20 @@ class Playback:
             return None
         x, y = self.data.df["X"].iat[row], self.data.df["Y"].iat[row]
         return (float(x), float(y)) if pd.notna(x) and pd.notna(y) else None
+
+    @property
+    def has_body_points(self) -> bool:
+        """True if the file has nose and rear end columns (ROADMAP §17)."""
+        return "Nose_X" in self.data.df.columns and "Rear_X" in self.data.df.columns
+
+    def body_points(self, row: int) -> tuple[tuple[float, float], tuple[float, float]] | None:
+        """(nose, rear end) for a frame, or None where they weren't found."""
+        if not self.has_body_points:
+            return None
+        v = [self.data.df[c].iat[row] for c in ("Nose_X", "Nose_Y", "Rear_X", "Rear_Y")]
+        if any(pd.isna(x) for x in v):
+            return None
+        return (float(v[0]), float(v[1])), (float(v[2]), float(v[3]))
 
     @cached_property
     def _unreadable(self) -> np.ndarray:
@@ -243,7 +260,7 @@ def _draw_objects(img: np.ndarray, objects, zone_px: float, here: str) -> None:
 
 def draw_tracking(frame: np.ndarray, pb: Playback, row: int, trail_frames: int = 0,
                   show_regions: bool = True, objects=None,
-                  zone_px: float = 0.0) -> np.ndarray:
+                  zone_px: float = 0.0, show_body: bool = True) -> np.ndarray:
     """The frame with ROIs, any objects and their zones, a short trail and
     the position marker drawn on, plus time and region (or the object zone
     the point is in) in the corner (for the saved video)."""
@@ -262,9 +279,17 @@ def draw_tracking(frame: np.ndarray, pb: Playback, row: int, trail_frames: int =
                 cv2.line(img, tuple(int(round(v)) for v in a), tuple(int(round(v)) for v in b),
                          TRAIL_BGR, 1, cv2.LINE_AA)
     pos = pb.position(row)
+    body = pb.body_points(row) if show_body else None
+    r = max(3, int(round(min(img.shape[:2]) / 80)))
+    if body:    # nose red, center yellow, rear end blue, joined by a line
+        spot = lambda p: (int(round(p[0])), int(round(p[1])))
+        nose, rear = body
+        cv2.line(img, spot(rear), spot(nose), (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.circle(img, spot(rear), r, REAR_BGR, -1, cv2.LINE_AA)
+        cv2.circle(img, spot(nose), r, NOSE_BGR, -1, cv2.LINE_AA)
     if pos:
-        r = max(3, int(round(min(img.shape[:2]) / 80)))
-        cv2.circle(img, (int(round(pos[0])), int(round(pos[1]))), r, MARKER_BGR, -1,
+        color = CENTER_BGR if show_body and pb.has_body_points else MARKER_BGR
+        cv2.circle(img, (int(round(pos[0])), int(round(pos[1]))), r, color, -1,
                    cv2.LINE_AA)
     text = pb.time_text(row) + ("  unreadable" if pb.unreadable(row) else
                                 f"  {pb.region(row)}" if pb.region(row) else
@@ -282,7 +307,7 @@ def tracked_video_path(video: str) -> str:
 def write_tracked_video(pb: Playback, out_path: str | None = None, trail_frames: int = 0,
                         show_regions: bool = True, progress=None,
                         should_cancel=None, objects=None,
-                        zone_px: float = 0.0) -> str | None:
+                        zone_px: float = 0.0, show_body: bool = True) -> str | None:
     """Write the session with the tracking drawn on, at the video's real
     frame rate, as `<name>_tracked.mp4` beside the video (overwriting).
     `objects` (Object Recognition) are drawn with zones `zone_px` out from
@@ -312,7 +337,8 @@ def write_tracked_video(pb: Playback, out_path: str | None = None, trail_frames:
                     raise ValueError("The video file couldn't be created.")
             if not ok:
                 frame = np.zeros((size[1], size[0], 3), np.uint8)  # keep the timing
-            img = draw_tracking(frame, pb, row, trail_frames, show_regions, objects, zone_px)
+            img = draw_tracking(frame, pb, row, trail_frames, show_regions, objects, zone_px,
+                                show_body)
             writer.write(np.ascontiguousarray(img[:size[1], :size[0]]))
             if progress and row % 25 == 0:
                 progress(row, n)
