@@ -4,8 +4,8 @@ REM Builds the conda environment from environment.yml, or updates it to match
 REM if it's already installed, so it's safe to run again after an update.
 REM (Mac equivalent: "Install Track Tamer.command")
 
-REM Move to this script's own folder (handles spaces in the path).
-cd /d "%~dp0"
+REM Move to the program's "app" folder beside this script (handles spaces in the path).
+cd /d "%~dp0app"
 
 call find_conda.bat
 if errorlevel 1 (
@@ -36,7 +36,7 @@ if errorlevel 1 (
     echo Couldn't activate "%ENV_NAME%".
     goto failed
 )
-python -c "import pandas, numpy, matplotlib, openpyxl, tkinter, tkinterdnd2, cv2, scipy, PIL"
+python -c "import pandas, numpy, matplotlib, openpyxl, tkinter, tkinterdnd2, cv2, PIL"
 if errorlevel 1 (
     echo.
     echo The environment was built but a package won't load. See the messages above.

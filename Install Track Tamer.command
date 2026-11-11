@@ -4,8 +4,8 @@
 # if it's already installed, so it's safe to run again after an update.
 # (Windows equivalent: "Install Track Tamer.bat")
 
-# Move to this script's own directory (handles spaces in the path).
-cd "$(dirname "$0")" || exit 1
+# Move to the program's "app" folder beside this script (handles spaces in the path).
+cd "$(dirname "$0")/app" || { echo "The program's \"app\" folder is missing. Download Track Tamer again."; read -r -p "Press Return to close this window." _; exit 1; }
 . ./find_conda.sh
 
 finish() {
@@ -37,7 +37,7 @@ if [ $? -ne 0 ]; then
 fi
 
 conda activate "$ENV_NAME" || { echo "Couldn't activate \"$ENV_NAME\"."; finish 1; }
-if ! python -c "import pandas, numpy, matplotlib, openpyxl, tkinter, tkinterdnd2, cv2, scipy, PIL"; then
+if ! python -c "import pandas, numpy, matplotlib, openpyxl, tkinter, tkinterdnd2, cv2, PIL"; then
     echo
     echo "The environment was built but a package won't load. See the messages above."
     finish 1

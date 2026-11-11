@@ -1,5 +1,12 @@
 # Track Tamer — Roadmap
 
+**Where files are (since 2026-11-10):** the program is in the `app` folder
+(`app/gui.py`, `app/core/`, `app/tests/`, the environment files and conda
+finders), this file and the metadata standard are in `docs`, and the
+project folder itself holds only the launchers, README, INSTALL, TESTING
+and LICENSE. Paths in this document such as `core/...` and `tests/...` are
+inside `app`.
+
 Feature and analysis plan for the behavior-tracking analyzer. This is the design
 doc: what's built, what was decided (and why), and what's next. Nothing new is
 built until it's agreed here.
@@ -1638,6 +1645,13 @@ until the user asks; when they ask what's next, work from the top:
 
 Not ranked: reading the capture apps' info files (§16, after 1.0) and the
 standalone app (on hold).
+
+**Marker for later: Puzzle Box (user, 2026-11-10).** Creature Capture
+records it (assay `Puzzle Box`, with trial days and several sessions a day;
+arena `PuzzleBox`, camera `Overhead`), and the name is in the standard's
+assay list. **Not analyzed in Track Tamer for now**, marked like Skilled
+Reaching. Kept here so it isn't forgotten: if it's taken up, it needs its
+measures decided first (nothing is specified yet).
 
 **Everything planned so far is built** (as of 2026-10-30). Still open:
 - ✅ **Anaconda install (§14)**: built 2026-11-03 on `main`, merged into

@@ -4,7 +4,8 @@ REM Removes only the conda environment; the program folder and your data,
 REM results and settings are left untouched.
 REM (Mac equivalent: "Uninstall Track Tamer.command")
 
-cd /d "%~dp0"
+REM Move to the program's "app" folder beside this script (handles spaces in the path).
+cd /d "%~dp0app"
 
 call find_conda.bat
 if errorlevel 1 (

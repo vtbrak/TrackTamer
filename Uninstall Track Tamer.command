@@ -4,7 +4,8 @@
 # results and settings are left untouched.
 # (Windows equivalent: "Uninstall Track Tamer.bat")
 
-cd "$(dirname "$0")" || exit 1
+# Move to the program's "app" folder beside this script (handles spaces in the path).
+cd "$(dirname "$0")/app" || { echo "The program's \"app\" folder is missing. Download Track Tamer again."; read -r -p "Press Return to close this window." _; exit 1; }
 . ./find_conda.sh
 
 finish() {

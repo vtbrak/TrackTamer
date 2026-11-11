@@ -2,10 +2,10 @@
 # Double-click launcher for Track Tamer GUI (macOS).
 # Uses the Anaconda environment from "Install Track Tamer.command" when
 # it's installed. On computers without Anaconda it falls back to the
-# project's own virtual environment (.venv), creating it on first run.
+# program's own virtual environment (app/.venv), creating it on first run.
 
-# Move to this script's own directory (handles spaces in the path).
-cd "$(dirname "$0")" || exit 1
+# Move to the program's "app" folder beside this script (handles spaces in the path).
+cd "$(dirname "$0")/app" || { echo "The program's \"app\" folder is missing. Download Track Tamer again."; read -r -p "Press Return to close this window." _; exit 1; }
 . ./find_conda.sh
 
 if find_conda; then

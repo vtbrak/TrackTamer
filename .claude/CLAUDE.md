@@ -2,7 +2,24 @@
 
 This file is auto-loaded when a Claude Code session starts in this folder. It is
 the handoff brief so a fresh session continues the work with full context. The
-detailed plan lives in [ROADMAP.md](ROADMAP.md) — read it before building.
+detailed plan lives in [docs/ROADMAP.md](../docs/ROADMAP.md) — read it before building.
+
+## Where files are (user, 2026-11-10)
+The project folder shows only what a user needs: the six launchers
+(`Open` / `Install` / `Uninstall Track Tamer` `.command` and `.bat`),
+`README.md`, `INSTALL.md`, `TESTING.md` and `LICENSE`. **Keep it that way:
+new program files go in `app/`, new documents in `docs/`**
+(`app/tests/test_layout.py` checks). Everything else:
+- `app/`: the program (`gui.py` and the other windows, `core/`, `tests/`,
+  `requirements.txt`, `environment.yml`, `find_conda.sh` / `.bat`), plus,
+  not in git, `config.json`, `.venv` and the `ezTrack/` reference copy.
+  The launchers `cd` into `app` first, so paths inside them are as before.
+- `docs/`: `ROADMAP.md`, `metadata_standard.md`.
+- `.claude/CLAUDE.md`: this file.
+- `Examples/` (not in git): the user's test videos, beside `app`.
+File names below such as `core/...`, `gui.py` and `tests/...` are inside
+`app/`. A `config.json` left in the project folder by an older version is
+moved into `app/` the first time the app runs.
 
 ## What this is
 A desktop app ("Track Tamer") that analyzes video-based rodent locomotion
@@ -43,7 +60,7 @@ tracks videos itself (adapted from ezTrack).
   Time Bins, Settings sheets), `_path.png`, and `_heatmap.png` next to its CSV.
 - `region_dialog.py`: the Match regions dialog.
 - `tests/regress_gui.py`: workflow regression test. Run it after GUI changes
-  (`.venv/bin/python tests/regress_gui.py`); it needs the Examples files.
+  (`app/.venv/bin/python app/tests/regress_gui.py`); it needs the Examples files.
 - **Jumping to a video frame:** never use `cap.set(cv2.CAP_PROP_POS_FRAMES)`
   for a frame that must match tracking. The camera videos have uneven frame
   timing, so OpenCV's jump lands a frame off in places. Use
@@ -180,6 +197,6 @@ describes them).
 
 ## How to run
 ```bash
-cd "/Volumes/AI Files/Track Tamer" && ./.venv/bin/python gui.py
+cd "/Volumes/AI Files/Track Tamer/app" && ./.venv/bin/python gui.py
 ```
 Or double-click `Open Track Tamer.command`.

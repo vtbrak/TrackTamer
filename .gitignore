@@ -1,4 +1,4 @@
-.venv/
+.venv
 __pycache__/
 *.pyc
 .DS_Store
@@ -17,6 +17,10 @@ config.json
 # Reference copy of ezTrack (upstream: github.com/denisecailab/ezTrack). Code we adapt
 # lives in our own files with attribution; the original and its videos stay out of git.
 ezTrack/
+
+# Other Claude Code sessions' working copies (the project notes in
+# .claude/CLAUDE.md are tracked)
+.claude/worktrees/
 
 # Example videos and their outputs (research data, kept off GitHub)
 examples/

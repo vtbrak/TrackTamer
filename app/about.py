@@ -8,7 +8,8 @@ from tkinter import ttk
 
 from core.version import VERSION
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# The project folder (this file is in its "app" folder); LICENSE is there.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 CREDITS = (
     "Tracks rodents in video and analyzes the tracking (Elevated Plus Maze, "
