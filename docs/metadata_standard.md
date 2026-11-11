@@ -330,18 +330,50 @@ plus Other. For `Puzzle Box` it writes arena `PuzzleBox` and camera
   arena size, environment).
 - The JSON is written in one go.
 
-Creature Capture keeps a copy of this file (`Creature_Capture/metadata_standard.md`),
-taken from GitHub; refresh it from GitHub whenever the standard changes.
+Creature Capture keeps a copy of this file
+(`Creature_Capture/docs/metadata_standard.md`; its program files are in
+`app/` and its documents in `docs/`, as here), taken from GitHub; refresh it
+from GitHub whenever the standard changes.
 
 ### Boom Box
 Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
 `Prepulse Inhibition`, `Startle Habituation`); arena `ASR1`, camera label
-`Side`. App-only fields in `boom_box`. Boom Box 1.1's full data guide is its
-`TRACK_TAMER_DATA.md`.
+`Side`. App-only fields in `boom_box`. Its full data guide is
+`app/docs/TRACK_TAMER_DATA.md` in its repository
+(github.com/vtbrak/BoomBox), describing Boom Box 1.3.3 (reported by Boom Box,
+2026-11-11).
 
-**To change:** add `pulse_freq_hz` and `pulse_stimulus` to each `stimuli`
-entry (section 5). Until then Track Tamer reads them from `boom_box.trials`,
-which lines up with `stimuli` by position.
+**Matches schema 1 (draft).** What Track Tamer needs to know from the guide:
+- **Stimuli.** Since Boom Box 1.2 each `stimuli` entry with a pulse carries
+  `pulse_stimulus` (`tone` or `noise`) and `pulse_freq_hz` (left out for
+  noise). Sessions recorded with 1.1 don't; Track Tamer then reads them from
+  `boom_box.trials`, which lines up with `stimuli` by position. `type` is
+  `pulse`, `prepulse+pulse`, `prepulse` or `none` (a scheduled time with no
+  sound: a baseline for comparison).
+- **A session folder with no `_info.json` is a failed recording** (since
+  1.3.2: the video encoder failed, so there is no usable video; any partial
+  video is left as `_video.mp4`). Skip such folders.
+- **Text files are UTF-8** on Mac and Windows (since 1.3.2).
+- **Built-in protocols** (`boom_box.protocol_name`), each starting with a
+  5-minute habituation in 65 dB background noise, and how their results are
+  meant to be grouped:
+
+  | Protocol | `assay_variant` | Group results by |
+  |---|---|---|
+  | `Tone Volume Sensitivity` (was `ASR Standard`): 15 tones at 105 dB, 4 to 20 kHz | left out | `pulse_freq_hz` |
+  | `Startle Habituation`: 100 tones at 8 kHz, 115 dB | `Startle Habituation` | stimulus order |
+  | `Hearing Test`: 36 tones at 8 kHz, 40 to 120 dB, played in silence | left out | `pulse_db` |
+  | `I/O`: white-noise bursts at 70 to 120 dB plus no-stimulus trials | left out | `pulse_db` |
+  | `PPI Default` and other PPI protocols | `Prepulse Inhibition` | `type`, `prepulse_db`, `interval_ms` |
+
+  Levels can differ from stimulus to stimulus, so read `pulse_db` from each
+  one. **Track Tamer today** reports startle per trial type and per pulse
+  frequency, prepulse inhibition per prepulse level and interval, and
+  habituation by trial order; **it doesn't yet group by pulse level**
+  (`pulse_db`), which Hearing Test and I/O sessions need (not built; the
+  level is in the Trials table for each trial).
+- **Not yet checked** with the lab's camera in a real session, or on Windows
+  (Boom Box's own status).
 
 ### Pellet Paparazzi
 Skilled reaching recording. **Not analyzed in Track Tamer** (the task and
