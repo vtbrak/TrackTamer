@@ -301,7 +301,10 @@ Writes `<date>_<time>_<arena>_info.json` (and `_info.csv`) per arena per
 trial, one MP4 and one `_frames.csv` per camera.
 
 **Matches the revised schema 1 draft** (reported by Creature Capture,
-2026-11-06; its changes are waiting for the user to commit them):
+2026-11-06; committed and pushed, confirmed 2026-11-10). Its `fps_measured`
+is measured from the recording clock: (frames - 1) / (last tick - first
+tick). Its assay list is the section 3 list without `Skilled Reaching`,
+plus Other:
 - `schema_version`, `app_name`, `app_version`; `date` and `start_time` from
   the recording computer (no `start_wall_clock`).
 - `assay`, `assay_variant` and `phase` from each assay's own lists in
