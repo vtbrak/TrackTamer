@@ -30,7 +30,7 @@ from .loader import TrackingData
 from .objects import object_at
 from .regions import match_polygons
 from .video import (VIDEO_EXTENSIONS, Prep, crop_frame, frame_times, grab_frame,
-                    landing_frame, video_info)
+                    video_info)
 
 MARKER_BGR = (40, 40, 255)      # red
 TRAIL_BGR = (40, 200, 255)      # amber
@@ -196,11 +196,9 @@ class FrameSource:
     """Reads a playback's color frames, fast when moving forward (sequential
     reads, skipped frames grabbed without decoding) and by jumping otherwise.
 
-    Row r is the frame tracking read for row r: tracking jumps to the start
-    frame with OpenCV's own jump and reads on in order, so rows count in
-    order from where that jump lands (`landing_frame`). A jump here goes to
-    exactly that frame (`grab_frame`), where OpenCV's own could land on a
-    neighbour and put the marks on the wrong frame."""
+    Row r is video frame start + r, the frame tracking read for that row. A
+    jump goes to exactly that frame (`grab_frame`), where OpenCV's own could
+    land on a neighbour and put the marks on the wrong frame."""
 
     def __init__(self, pb: Playback):
         self.pb = pb
@@ -208,14 +206,13 @@ class FrameSource:
         if not self.cap.isOpened():
             raise ValueError(f"Couldn't open the video {os.path.basename(pb.video)}.")
         self._times = frame_times(pb.video)
-        self._first = landing_frame(self.cap, self._times, pb.start)  # row 0's frame
         self._next = None   # frame the next grab() gives, counted in order
 
     def close(self) -> None:
         self.cap.release()
 
     def frame(self, row: int) -> np.ndarray | None:
-        target = self._first + row
+        target = self.pb.video_frame(row)
         if self._next is not None and 0 <= target - self._next <= 30:
             ok = True
             while ok and self._next <= target:
@@ -303,13 +300,18 @@ def write_tracked_video(pb: Playback, out_path: str | None = None, trail_frames:
     cap = cv2.VideoCapture(pb.video)
     writer = None
     try:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, pb.start)
+        times = frame_times(pb.video)
         n = pb.n_frames
         size = None
+        jump = True   # go to the frame itself: at the start, and past a bad frame
         for row in range(n):
             if should_cancel and should_cancel():
                 break
-            ok, frame = cap.read()
+            # The same frames, found the same way, as tracking read.
+            ok = grab_frame(cap, times, pb.video_frame(row)) if jump else cap.grab()
+            if ok:
+                ok, frame = cap.retrieve()
+            jump = not ok
             if ok:
                 frame = prepare_color(frame, pb.prep)
             if size is None:

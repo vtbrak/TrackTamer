@@ -1846,17 +1846,22 @@ standalone app (on hold).
   frame it landed on, and reads forward to the exact one (`grab_frame`;
   same speed as before). `VideoReader.read_at` and the playback window's
   `FrameSource` use it; without timestamps (another video backend) they
-  fall back to OpenCV's own jump. **Tracking is unchanged:** it still
-  starts with OpenCV's own jump to the start frame and reads on in order,
-  and the reference still reads the frames it always did (`read_near`), so
-  references and positions are identical to before (checked). Playback
-  lines row 0 up with the frame tracking's start jump lands on
-  (`landing_frame`), so old and new tracking files both play back on the
-  frames they were tracked from. The saved `_tracked.mp4` already read the
-  way tracking does. **Left open (user to decide):** with a start frame
-  after 0, tracking's first frame is where OpenCV's jump lands, which can
-  be the frame before the one setup shows as the start; making tracking
-  start on the exact frame would shift those files' rows by a frame.
+  fall back to OpenCV's own jump. **Tracking starts on exactly the start
+  frame chosen in setup (user, 2026-11-10):** `VideoReader.frames` goes to
+  the start frame the checked way and reads on in order, so the frame setup
+  shows as the start is the first tracked frame, and playback row r and the
+  saved `_tracked.mp4` are frame start + r. Before, tracking started where
+  OpenCV's jump landed, which could be the frame before. Trials that start
+  at frame 0, or where the old jump was right, track exactly as before.
+  **A file tracked before this with a start after 0 may have been tracked
+  from the frame before its start, and then plays back one frame off:
+  re-track it** (the user: nothing tracked so far needs keeping). Of the
+  example files, the Open Field one (`1_2026-08-17_13-27-03`, start 730)
+  was tracked from frame 729 and needs re-tracking; the EPM one (start
+  674) and the object trial (start 0) are right. Say so in the notes of
+  the release this goes out in. The reference image still reads the frames
+  it always did (`read_near`: OpenCV's own jump, any frame nearby does), so
+  references are unchanged.
   Checked by `tests/test_seek.py` (skips when the videos aren't there).
 - **Future items** (§11): immobility, now to be covered by §12's freezing.
 - **Standalone app** (bundling): on hold until the user says so.

@@ -4,8 +4,9 @@ OpenCV's own jump (`cap.set(cv2.CAP_PROP_POS_FRAMES, n)`) lands a frame or so
 off in stretches of videos whose frames aren't evenly spaced in time, which
 is every camera recording in Examples. Tracking reads in order, so a jump
 that is off puts the tracked marks on a neighbouring frame. This checks that
-`VideoReader.read_at` and the playback window's `FrameSource` give exactly
-the in-order frames, on the example videos that are there (skipped when none
+`VideoReader.read_at`, the first frame tracking reads (`VideoReader.frames`
+from a start frame) and the playback window's `FrameSource` give exactly the
+in-order frames, on the example videos that are there (skipped when none
 are).
 
 Run from the project folder:  .venv/bin/python tests/test_seek.py
@@ -66,8 +67,10 @@ for path in VIDEOS:
     rng = np.random.default_rng(0)
     last = len(times) - 2          # the very last stored frame often doesn't decode
     samples = sorted({int(i) for i in np.linspace(0, last, 60)})
-    truth, read = in_order(path, set(samples))
-    check("read in order to the last sampled frame", read == last + 1 and len(truth) == len(samples))
+    wanted = set(samples) | ({400, 401} if last > 401 else set())
+    wanted |= {i + 1 for i in samples if i < last}
+    truth, read = in_order(path, wanted)
+    check("read in order to the last sampled frame", read == last + 1 and len(truth) == len(wanted))
 
     with video.VideoReader(path) as r:
         order = [samples[i] for i in rng.permutation(len(samples))]
@@ -78,9 +81,9 @@ for path in VIDEOS:
         off = [i for i in samples if not same(r.read_near(i), truth.get(i))]
     print(f"     (OpenCV's own jump is off at {len(off)} of {len(samples)} of these frames)")
 
-    # Playback: row r is the frame tracking read for row r. Tracking jumps to
-    # its start frame with OpenCV's own jump and reads on in order, so start
-    # where that jump is off when there is such a place.
+    # Tracking starts on exactly the start frame chosen in setup and reads on
+    # in order; playback row r is frame start + r. Start where OpenCV's own
+    # jump is off, when there is such a place.
     span = min(1500, last - 1)
     starts = [400] + [i for i in off if 0 < i <= last - span][:1]
     for start in starts:
@@ -88,6 +91,10 @@ for path in VIDEOS:
             continue
         with video.VideoReader(path) as r:
             tracked = dict(r.frames(start, start + span))     # what tracking reads
+            shown = r.read_at(start)                           # what setup shows
+        check(f"tracking from start frame {start} begins on that frame and the next follows",
+              same(tracked.get(start), truth.get(start)) and same(shown, truth.get(start))
+              and same(tracked.get(start + 1), truth.get(start + 1)))
         rows = ([0, 1, 2, 3, 20, 45, 46, 500, 499, 498, 530, 531, 900, 60, 1499 % span, 0]
                 + [int(v) for v in rng.integers(0, span, 40)])
         rows = [row for row in rows if row < span]

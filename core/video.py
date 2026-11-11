@@ -189,17 +189,6 @@ def grab_frame(cap, times: np.ndarray | None, index: int) -> bool:
     return False
 
 
-def landing_frame(cap, times: np.ndarray | None, index: int) -> int:
-    """The frame OpenCV's own jump to `index` really lands on. Tracking starts
-    with that jump and reads on in order, so a tracking file's first row is
-    this frame (`index` itself where that can't be told)."""
-    if index <= 0 or times is None:
-        return max(index, 0)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, index)
-    at = frame_at(cap, times) if cap.grab() else None
-    return index if at is None else at
-
-
 class VideoReader:
     """Frames from one video, prepared (grayscale, downsampled, cropped).
 
@@ -239,7 +228,7 @@ class VideoReader:
         """A frame at or right next to `index`, by OpenCV's own jump (which
         can land a frame or so off; see `frame_times`). For the reference
         image only: any frame nearby does there, and reading the same frames
-        as before keeps references, and so tracking results, unchanged."""
+        as before keeps references unchanged."""
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, index)
         ret, frame = self.cap.read()
         return prepare(frame, self.prep) if ret else None
@@ -250,19 +239,20 @@ class VideoReader:
         A run of unreadable frames at the very end is dropped: files often
         report a few more frames than they hold (ezTrack stops there too).
 
-        The first frame is where OpenCV's own jump to `start` lands, which
-        can be a neighbour of `start` when `start` isn't 0 (`landing_frame`).
-        Left as it is so tracking results don't change; playback finds the
-        same frame to line its rows up."""
+        The first frame is exactly frame `start` (`grab_frame`), the one
+        `read_at(start)` shows, so tracking starts on the frame chosen in
+        setup (user, 2026-11-10)."""
         end = self.frame_count if end is None else min(end, self.frame_count)
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, start)
+        times = frame_times(self.path)
         pending = []  # unreadable indices not yet yielded
+        jump = True   # go to the frame itself: at the start, and past a bad frame
         for index in range(start, end):
-            ret, frame = self.cap.read()
+            ret = grab_frame(self.cap, times, index) if jump else self.cap.grab()
+            if ret:
+                ret, frame = self.cap.retrieve()
+            jump = not ret
             if not ret:
                 pending.append(index)
-                # Step past the bad frame so the next read is the next frame.
-                self.cap.set(cv2.CAP_PROP_POS_FRAMES, index + 1)
                 continue
             for bad in pending:
                 yield bad, None
