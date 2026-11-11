@@ -136,7 +136,6 @@ case and spaces at the ends.
 | `Object Recognition` | built | `Novel Object Recognition`, `Spatial Object Recognition` | `Habituation`, `Training`, `Test` |
 | `Acoustic Startle Response` | planned (ROADMAP §13) | `Prepulse Inhibition`, `Startle Habituation` | |
 | `Conditioned Place Preference` | planned | | `Pretest`, `Conditioning`, `Test` |
-| `Fear Conditioning` | planned (freezing, ROADMAP §12) | | `Training`, `Context Test`, `Cue Test` |
 | `Skilled Reaching` | not analyzed in Track Tamer (listed for consistency) | | |
 
 Variants of one assay share Track Tamer's analysis: an object trial is
@@ -247,9 +246,6 @@ For `prepulse+pulse` the event time is the **pulse**; the prepulse started
 Its baseline window ends at the event time, or at the prepulse onset on
 `prepulse+pulse` trials.
 
-### Fear Conditioning (planned)
-To be added when freezing analysis is built (e.g. tone and shock times).
-
 ### Conditioned Place Preference (planned)
 To be added when its analysis is built (e.g. which chamber was paired with
 the drug, the conditioning session number, and the chamber the animal was
@@ -292,6 +288,9 @@ confined to in a conditioning session).
   `environment`; `cohort` is labeled "Cohort / litter".
 - **Schema 1 (draft, 2026-11-09):** startle `stimuli` settled from Boom Box
   1.1, with `pulse_freq_hz` and `pulse_stimulus` added.
+- **Schema 1 (draft, 2026-11-10):** `Fear Conditioning` removed from the
+  assay list (user: it won't be captured). An info file that still says it
+  is treated like any assay not on the list.
 
 ---
 

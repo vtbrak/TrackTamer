@@ -1546,7 +1546,8 @@ separate assays for variants: then (user) **assay + `assay_variant` +
 variants `Novel Object Recognition` / `Spatial Object Recognition` (both use
 the same analysis; the variant is recorded); `Acoustic Startle Response`
 with `Prepulse Inhibition` / `Startle Habituation`; `Conditioned Place
-Preference`, `Fear Conditioning` planned. Variants will matter for ASR and
+Preference` planned (`Fear Conditioning` was listed too; removed
+2026-11-10, user: it won't be captured). Variants will matter for ASR and
 for more object and other variants later. Also removed (not recorded in the
 lab): weight, cage, ear tag, dose, arena size, environment;
 `cohort` labeled "Cohort / litter";
