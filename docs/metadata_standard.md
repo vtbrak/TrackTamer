@@ -136,6 +136,7 @@ case and spaces at the ends.
 | `Object Recognition` | built | `Novel Object Recognition`, `Spatial Object Recognition` | `Habituation`, `Training`, `Test` |
 | `Acoustic Startle Response` | planned (ROADMAP §13) | `Prepulse Inhibition`, `Startle Habituation` | |
 | `Conditioned Place Preference` | planned | | `Pretest`, `Conditioning`, `Test` |
+| `Puzzle Box` | not decided (listed so the name is the same everywhere) | | |
 | `Skilled Reaching` | not analyzed in Track Tamer (listed for consistency) | | |
 
 Variants of one assay share Track Tamer's analysis: an object trial is
@@ -291,6 +292,9 @@ confined to in a conditioning session).
 - **Schema 1 (draft, 2026-11-10):** `Fear Conditioning` removed from the
   assay list (user: it won't be captured). An info file that still says it
   is treated like any assay not on the list.
+- **Schema 1 (draft, 2026-11-10):** `Puzzle Box` added to the assay list
+  (user). It has trial days and several sessions on each day, so its files
+  carry `trial_day` and `session_number`; no variant or phase.
 
 ---
 
@@ -304,7 +308,8 @@ trial, one MP4 and one `_frames.csv` per camera.
 2026-11-06; committed and pushed, confirmed 2026-11-10). Its `fps_measured`
 is measured from the recording clock: (frames - 1) / (last tick - first
 tick). Its assay list is the section 3 list without `Skilled Reaching`,
-plus Other:
+plus Other. For `Puzzle Box` it writes arena `PuzzleBox` and camera
+`Overhead`, with `trial_day` and `session_number`:
 - `schema_version`, `app_name`, `app_version`; `date` and `start_time` from
   the recording computer (no `start_wall_clock`).
 - `assay`, `assay_variant` and `phase` from each assay's own lists in
