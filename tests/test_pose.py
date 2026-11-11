@@ -108,6 +108,36 @@ regions = [tracking.Region("open arm 1", [0, 1, 1], [0, 0, 1]), tracking.Region(
 check("only the plus maze has a limit", arena_parts(regions, "Open Field") is None
       and [p[2] for p in arena_parts(regions, "Elevated Plus Maze")] == ["open", "floor"])
 
+# Ears: lighter spots near the nose. Measured against the tail in the same video.
+def with_ears(angle, tail, cx=120, cy=100):
+    f = np.full((200, 240), 220, np.uint8); a = np.radians(angle); u = np.array([np.cos(a), np.sin(a)])
+    cv2.ellipse(f, (cx, cy), (26, 13), angle, 0, 360, 30, -1)
+    c = np.array([cx, cy], float); side = np.array([-u[1], u[0]])
+    for sgn in (-1, 1):
+        cv2.circle(f, tuple((c + u * 14 + side * 6 * sgn).astype(int)), 2, 120, -1)
+    if tail:
+        cv2.line(f, tuple((c - u * 26).astype(int)), tuple((c - u * 66).astype(int)), 30, 2)
+    return f, c + u * 26
+got = pose.find_points(with_ears(20, True)[0], ref, 120, 100)
+check("ears are seen toward the nose", got is not None and got.ears == 1.0)
+got = pose.find_points(blank, ref, 120, 100)
+check("no ears, no ear clue", got is not None and got.ears == 0.0)
+frames = [with_ears(20, True)[0]] * 40 + [None] * 10 + [with_ears(200, False)[0]] * 8
+found = [None if f is None else pose.find_points(f, ref, 120, 100) for f in frames]
+weights = pose.clue_weights(found, np.zeros(len(found)))
+check("ears that agree with the tail earn a weight", weights["ears"] >= 2)
+out = pose.resolve(found, np.tile([120.0, 100.0], (len(found), 1)))
+nose2 = with_ears(200, False)[1]
+check("then ears alone settle a stretch with no tail",
+      np.isfinite(out[-8:, 0]).all() and np.hypot(out[-8:, 0] - nose2[0], out[-8:, 1] - nose2[1]).max() <= 5)
+# ears that disagree with the tail half the time count for nothing
+mixed = [pose.find_points(with_ears(20, True)[0], ref, 120, 100) for _ in range(40)]
+for k in range(0, 40, 2):
+    mixed[k].ears = -1.0
+check("ears that agree only half the time earn none",
+      pose.clue_weights(mixed, np.zeros(40))["ears"] == 0.0)
+check("too few frames to measure: ears left out, the others keep a small weight",
+      pose.clue_weights(mixed[:5], np.zeros(5)) == {"taper": pose.TAPER_WEIGHT, "ears": 0.0, "travel": pose.TRAVEL_WEIGHT})
 check("one misleading tail frame is outvoted", pose.SWITCH_COST > pose.TAIL_WEIGHT > pose.TAPER_WEIGHT + pose.TRAVEL_WEIGHT)
 check("area check drops outlines far from the usual size",
       list(pose.area_filter(np.array([100.0] * 12 + [20.0, 400.0, np.nan]))) == [True] * 12 + [False] * 3)

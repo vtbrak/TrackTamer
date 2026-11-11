@@ -40,7 +40,7 @@ for name, test, crop, start, n in VIDEOS:
     swap = (np.hypot(df.Nose_X - df.Rear_X.shift(), df.Nose_Y - df.Rear_Y.shift()) < Lm * 0.3) & (jump > Lm * 0.6)
     print(f"{name} {test:19s} frames {len(df):5d} {len(df)/dt:4.0f} fps | points {100*have.mean():5.1f}% | "
           f"nose-rear median {Lm:4.0f} px (5-95%: {np.nanpercentile(L,5):.0f}-{np.nanpercentile(L,95):.0f}) | "
-          f"nose jumps > half length {100*np.nanmean(jump > Lm/2):.2f}% | end swaps between frames {int(swap.sum())}", flush=True)
+          f"nose jumps > half length {100*np.nanmean(jump > Lm/2):.2f}% | end swaps between frames {int(swap.sum())} | weights " + ", ".join(f"{k} {v:.1f}" for k, v in pose.last_weights.items()), flush=True)
     pb = open_playback(data); src = FrameSource(pb); rng = np.random.default_rng(11)
     rows = np.sort(rng.choice(np.flatnonzero(df.X.notna().to_numpy()), 18, replace=False)); tiles = []
     W = int(max(50, Lm * 0.95)); S = max(2, 400 // (2 * W))

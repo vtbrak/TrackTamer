@@ -1587,9 +1587,93 @@ where the body ends and the tail begins. **The tail itself is not a point and
 is not reported** (no tail tip, no tail columns); the app only uses the tail
 internally to tell which end of the body is the rear. Call the points "nose",
 "center" and "rear end" in the app and the docs, not "head/tail".
-**Steps:** 1. feasibility test on the example videos (below); 2. decide the
-measures and columns with the user (points decided, above); 3. engine; 4. app (tracking
-check, playback, Review); 5. validate against hand-clicked frames.
+**Measures: x, y only for now (user, 2026-11-10).** The tracking file gets
+`Nose_X`, `Nose_Y`, `Rear_X`, `Rear_Y` (same pixels as X and Y, blank where
+the two ends can't be told). No measure is worked out from them yet; the
+measures are decided later.
+**Steps:** 1. feasibility test on the example videos (below): done; 2. points
+and columns: decided (above); measures: later; 3. engine: **built**
+(2026-11-10, `core/pose.py`); 4. app: **built** for tracking, the tracking
+file, the playback window ("Nose and rear end" checkbox; nose red, center
+yellow, rear end blue) and the saved video; nothing in Summary, Review or
+export yet; 5. validate against hand-clicked frames: first passes below, the
+user's own marks still needed.
+
+**Built on the branch (2026-11-10), so the real program can be tried on the
+plus maze.** How `core/pose.py` works, in order:
+1. Outline of the animal in a square round the tracked center (reference
+   minus frame, Otsu, then at least half the animal's own contrast so a soft
+   shadow is left out). The square widens for a large animal. Pieces split by
+   a bar lying across the animal are joined.
+2. Body = the outline with thin parts worn away. Tail = the longest thin
+   piece joined to the body; a faint tail is picked up as a thin line
+   (top-hat) at a lower contrast. The rear end is where the tail joins.
+3. Nose = the point farthest from the rear end on a stricter outline (three
+   quarters of the animal's contrast), because the shadow just ahead of the
+   head is darker than the tail.
+4. Which end is the nose is settled over the whole video at once
+   (`resolve`, a shortest-path search): the tail is the strong clue (by its
+   length); the narrower end, the lighter ears and the direction of travel
+   are weak clues; the nose changing ends between two frames costs. A stretch
+   with no clue is left blank.
+5. Each weak clue is weighed per video by how often it agrees with a long
+   tail in that same video (`clue_weights`), so a clue that doesn't work in
+   a video counts for nothing there.
+6. Frames whose outline area is far from the video's usual area are blanked
+   (no animal in the picture, or something merged in).
+7. Plus maze only: the outline is limited to the drawn arms. Open arms are
+   widened by 2 cm (head dips); closed arms and the center are kept to their
+   floor, told from the walls by brightness in the reference image, because
+   the drawn closed arm takes in walls that mirror the animal.
+X and Y (the center) are worked out exactly as before. Tracking takes about
+three times as long with the new points (object trial: 5 s without, 17 s
+with).
+
+**Trial on ten more videos the user added (2026-11-10; 3 Open Field `2_...`,
+3 plus maze `6_...`, 4 object `7_...`/`8_...`; `prototypes/head_tail_trial.py`,
+sheets in `Examples/head-tail test/trial 2026-11-10/`).** Tracked through the
+app's own path (`make_job` -> `run_job`) with stand-in setups (crops by eye;
+for the plus maze the whole picture as one floor-only region, so the open
+arms' head-dip margin was not exercised). 18 random frames per video judged
+by eye for "nose and rear end the right way round", before the ear clue:
+- Open Field (one video judged): 16 of 16; one rear end placed on a wall
+  reflection.
+- Object videos (two judged): 17 of 17 and 15 of 17.
+- Plus maze (three judged): 34 right, 12 wrong, 8 can't tell, of 54. The
+  wrong ones: on the open arms the tail is a hairline over the white floor
+  and often isn't seen, and a head dipped over the edge looks thin like a
+  tail; in the closed arms the animal's reflection in the wall joins the
+  outline and a point lands on it; under the bar across the arms.
+- Points were given in 80-99% of frames per video.
+The hand-marked object trial frames with this engine: 28 of 28 the right way
+round; nose error median 0.21 cm (86% within 1 cm); rear end median 0.24 cm
+(89% within 1 cm); no points in all 8 empty frames
+(`Examples/head-tail test/accuracy (app engine).png`).
+
+**Ear test (user's idea, 2026-11-10: the ears are often lighter than the
+rest of the mouse; `prototypes/head_tail_ears_1.py`, `..._2.py`).** Lighter
+spots inside the body, checked on frames where a long tail settles which end
+is the nose: how often do the spots sit toward the nose?
+- The two 2026 example videos (object trial, Open Field): 97-99% and 94-97%.
+- The plus maze example: 85-89%. The three added plus maze videos: 62-83%.
+- The added 2023 Open Field and object videos: 47-73%, about chance: the
+  ears don't show lighter in those pictures. `8_2024-04-08`: 67-86%.
+So the ears are a very good clue in videos where they show, and no clue in
+others. Built in as a weak clue weighed per video (step 5 above): weight 3.0
+(the most) on the object trial, 0.0-1.6 on the ten added videos. Effect on
+the frames judged by eye (with the per-video weights for all weak clues): of
+60 judged right before, 59 still right; of 8 judged wrong, 4 now right.
+A small gain on these videos; more on videos where the ears show.
+
+**Still weak, to work on:** the plus maze (reflections in closed-arm walls,
+faint tails and head dips on the open arms, the bar); a turned or hunched
+animal; points on wall reflections in clear-walled arenas when the crop
+leaves the wall in.
+**Found on the way (to fix on `main`):** in the ten added videos, jumping to
+a frame can land one frame earlier than reading the video in order does
+(checked on three of them; no unreadable frames reported). Tracking reads in
+order, so the playback window and the saved-video check can show the marks
+one frame off after a jump. It is in `main` too.
 
 **Feasibility test (2026-11-09; `prototypes/head_tail_feasibility.py`, sheets
 of marked frames in `Examples/head-tail test/`).** Method: silhouette = the

@@ -19,9 +19,10 @@ Method (no trained model, so the app installs the same on Mac and Windows):
    tail).
 5. With no tail in view, the two ends of the outline are used.
 6. Which end is the nose is settled over the whole video at once
-   (`resolve`): the tail is the strong clue, the narrower end and the
-   direction of travel are weak ones, and the nose is expected to stay at
-   the same end from one frame to the next.
+   (`resolve`): the tail is the strong clue; the narrower end, the lighter
+   ears and the direction of travel are weaker ones, each weighed by how
+   well it agrees with the tail in that video; and the nose is expected to
+   stay at the same end from one frame to the next.
 """
 
 from __future__ import annotations
@@ -47,8 +48,18 @@ TRAVEL_MIN = 8.0         # pixels moved (over 4 frames) before travel is trusted
 TAPER_RATIO = 0.8        # one end this much narrower than the other is a clue
 # How the clues are weighed when settling nose vs rear over the video.
 TAIL_WEIGHT = 4.0        # the tail is at this end
-TAPER_WEIGHT = 1.0       # this end is the narrower one
-TRAVEL_WEIGHT = 1.0      # the animal is moving toward this end
+TAPER_WEIGHT = 1.0       # the narrower end, when it can't be measured (below)
+TRAVEL_WEIGHT = 1.0      # moving toward this end, when it can't be measured
+# The weak clues are weighed by how often they agree with a long tail in
+# the video being tracked (`clue_weights`).
+CALIBRATE_TAIL = 0.9     # tail strength that counts as settling a frame
+CALIBRATE_MIN = 30       # frames needed to measure a clue
+MAX_WEAK_WEIGHT = 3.0
+# Ears (user's idea, 2026-11-10): lighter spots inside the body.
+EAR_CONTRAST = 0.15      # lighter than the fur by this much of the animal's contrast
+EAR_SIZE = 0.25          # largest spot width, times sqrt(area)
+EAR_MAX_AREA = 0.06      # largest spot, as a share of the outline
+EAR_OFF_CENTER = 0.1     # how far from the middle of the body before it counts
 SWITCH_COST = 6.0        # the nose changing ends between two frames (so one
                          # misleading tail frame is outvoted: 2 switches > 2 tails)
 MAX_GAP = 5              # frames without points before a stretch is cut
@@ -60,7 +71,9 @@ class BodyPoints:
     rear: tuple[float, float]
     area: int                      # outline pixels (for the sanity check)
     source: str                    # "tail" if a tail was seen, else "shape"
-    evidence: float = 0.0          # see `find_points`
+    tail: float = 0.0              # 0 to 1: a tail at the rear, and how long
+    taper: float = 0.0             # +1 the nose end is the narrower one, -1 the rear
+    ears: float = 0.0              # +1 lighter spots toward the nose, -1 toward the rear
 
 
 def _kernel(size: int) -> np.ndarray:
@@ -220,15 +233,51 @@ def _farthest(mask: np.ndarray, from_pt: np.ndarray) -> np.ndarray:
     return np.array([xs[k], ys[k]], float)
 
 
+def _ear_clue(gray: np.ndarray, dif: np.ndarray, s: dict, nose: np.ndarray,
+              rear: np.ndarray) -> float:
+    """+1 if the lighter spots inside the body (the ears, in videos where
+    they show lighter than the fur) sit toward `nose`, -1 if toward `rear`,
+    0 if there are none or they sit in the middle. Something light lying
+    right across the animal (a bar) is too big to count."""
+    body = s["body"]
+    root = np.sqrt(s["area"])
+    contrast = float(np.median(dif[body == 1]))
+    filled = cv2.morphologyEx(body, cv2.MORPH_CLOSE, _kernel(round(root * 0.35)))
+    inner = cv2.erode(filled, np.ones((3, 3), np.uint8))
+    fur = float(np.median(gray[body == 1]))
+    inside = np.where(filled == 1, gray, fur).astype(np.float32)   # the floor doesn't count
+    spots = cv2.morphologyEx(inside, cv2.MORPH_TOPHAT, _kernel(round(root * EAR_SIZE)))
+    light = ((spots > EAR_CONTRAST * contrast) & (inner == 1)).astype(np.uint8)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(light, 8)
+    keep = np.zeros(light.shape, dtype=bool)
+    for k in range(1, n):
+        if 3 <= st[k, cv2.CC_STAT_AREA] <= EAR_MAX_AREA * s["area"]:
+            keep |= lab == k
+    if keep.sum() < 3:
+        return 0.0
+    axis = (nose - rear) / max(float(np.hypot(*(nose - rear))), 1e-6)
+    ys, xs = np.nonzero(body)
+    t_body = (np.column_stack([xs, ys]) - rear) @ axis
+    lo, length = float(t_body.min()), float(np.ptp(t_body))
+    if length < 5:
+        return 0.0
+    ly, lx = np.nonzero(keep)
+    w = spots[ly, lx]
+    t = float(((((np.column_stack([lx, ly]) - rear) @ axis) - lo) * w).sum() / w.sum() / length)
+    if abs(t - 0.5) <= EAR_OFF_CENTER:
+        return 0.0
+    return 1.0 if t > 0.5 else -1.0
+
+
 def find_points(frame: np.ndarray, reference: np.ndarray, cx: float, cy: float,
                 method: str = "dark", half: int = 75,
                 exclude: np.ndarray | None = None,
                 arena: np.ndarray | None = None) -> BodyPoints | None:
     """The animal's two ends in one prepared frame, as a first guess at
-    which is the nose, with how sure that guess is (`evidence`: above 0 the
-    guess is favored, below 0 the other way round, 0 not known from this
-    frame). `resolve` settles the guesses over the whole video. None when
-    the outline can't be used."""
+    which is the nose, with this frame's clues about that guess (`tail`,
+    `taper`, `ears`: above 0 the guess is favored, below 0 the other way
+    round, 0 no clue). `resolve` settles the guesses over the whole video.
+    None when the outline can't be used."""
     mask, core, faint, (x0, y0) = outline(frame, reference, cx, cy, method, half,
                                           exclude, arena)
     if mask is None:
@@ -241,12 +290,12 @@ def find_points(frame: np.ndarray, reference: np.ndarray, cx: float, cy: float,
         rear = s["tail_base"]
         head = (core == 1) & ~s["tail"]
         nose = _farthest(head if head.any() else (mask == 1) & ~s["tail"], rear)
-        evidence = TAIL_WEIGHT * s["tail_strength"]
+        tail = float(s["tail_strength"])
     else:
         a, b = s["ends"]        # ends of the worn-down body's long axis
         nose = _farthest(core == 1, b)
         rear = _farthest(core == 1, nose)
-        evidence = 0.0
+        tail = 0.0
     # The nose end of the body is usually the narrower one (a weaker clue).
     ys, xs = np.nonzero(s["body"])
     along = np.column_stack([xs, ys]).astype(float) - rear
@@ -255,11 +304,58 @@ def find_points(frame: np.ndarray, reference: np.ndarray, cx: float, cy: float,
     lo, hi = float(t.min()), float(t.max())
     front = int((t > lo + (hi - lo) * 2 / 3).sum())
     back = int((t < lo + (hi - lo) / 3).sum())
+    taper = 0.0
     if min(front, back) < TAPER_RATIO * max(front, back):
-        evidence += TAPER_WEIGHT if front < back else -TAPER_WEIGHT
+        taper = 1.0 if front < back else -1.0
+    ears = 0.0
+    if method == "dark":        # ears lighter than dark fur
+        hh, ww = mask.shape
+        gray = frame[y0:y0 + hh, x0:x0 + ww].astype(np.float32)
+        dif = np.clip(reference[y0:y0 + hh, x0:x0 + ww].astype(np.float32) - gray, 0, 255)
+        ears = _ear_clue(gray, dif, s, nose, rear)
     nose, rear = nose + off, rear + off
     return BodyPoints((float(nose[0]), float(nose[1])), (float(rear[0]), float(rear[1])),
-                      s["area"], "tail" if s["tail"] is not None else "shape", evidence)
+                      s["area"], "tail" if s["tail"] is not None else "shape",
+                      tail, taper, ears)
+
+
+last_weights: dict[str, float] = {}     # the weights `resolve` last used
+
+
+def _travel(found: list[BodyPoints | None], centers: np.ndarray) -> np.ndarray:
+    """Per frame: +1 if the animal is moving toward the guessed nose, -1 if
+    away from it, 0 if it is hardly moving (or there are no points)."""
+    n = len(found)
+    out = np.zeros(n)
+    for i, f in enumerate(found):
+        if f is None:
+            continue
+        v = centers[min(i + 2, n - 1)] - centers[max(i - 2, 0)]
+        if np.all(np.isfinite(v)) and np.hypot(*v) >= TRAVEL_MIN:
+            out[i] = 1.0 if np.subtract(f.nose, f.rear) @ v > 0 else -1.0
+    return out
+
+
+def clue_weights(found: list[BodyPoints | None], travel: np.ndarray) -> dict[str, float]:
+    """How much each weak clue counts in this video, measured on the video
+    itself: over the frames where a long tail settles which end is the nose,
+    how often does the clue agree? A clue that agrees nearly always counts
+    for a lot, one that agrees half the time (ears that don't show lighter
+    in this video, say) counts for nothing. With too few long-tail frames to
+    measure, the narrow end and travel keep a small fixed weight and the ears
+    are left out."""
+    sure = [i for i, f in enumerate(found) if f is not None and f.tail >= CALIBRATE_TAIL]
+
+    def weight(values, default):
+        votes = [v > 0 for v in values if v != 0]
+        if len(votes) < CALIBRATE_MIN:
+            return default
+        p = min(max(float(np.mean(votes)), 0.02), 0.98)
+        return float(min(max(np.log(p / (1 - p)), 0.0), MAX_WEAK_WEIGHT))
+
+    return {"taper": weight([found[i].taper for i in sure], TAPER_WEIGHT),
+            "ears": weight([found[i].ears for i in sure], 0.0),
+            "travel": weight([travel[i] for i in sure], TRAVEL_WEIGHT)}
 
 
 def resolve(found: list[BodyPoints | None], centers: np.ndarray) -> np.ndarray:
@@ -267,15 +363,20 @@ def resolve(found: list[BodyPoints | None], centers: np.ndarray) -> np.ndarray:
     video at once. Returns an array of rows (nose x, nose y, rear x, rear y,
     outline area), NaN where there are no points.
 
-    Each frame's own clues (the tail, the narrower end, the direction of
-    travel) are weighed against keeping the nose at the same end from one
-    frame to the next, and the best overall answer is taken (a shortest-path
-    search). So a stretch with the tail out of sight is settled by the frames
-    before and after it, and a single misleading frame is outvoted. A stretch
-    with no clue at all is left blank rather than guessed."""
+    Each frame's own clues (the tail, the narrower end, the lighter ears,
+    the direction of travel; see `clue_weights` for how much each counts)
+    are weighed against keeping the nose at the same end from one frame to
+    the next, and the best overall answer is taken (a shortest-path search).
+    So a stretch with the tail out of sight is settled by the frames before
+    and after it, and a single misleading frame is outvoted. A stretch with
+    no clue at all is left blank rather than guessed."""
     n = len(found)
     out = np.full((n, 5), np.nan)
     centers = np.asarray(centers, float)
+    travel = _travel(found, centers)
+    w = clue_weights(found, travel)
+    last_weights.clear()
+    last_weights.update(w)      # for reports and tests
     start = 0
     while start < n:
         if found[start] is None:
@@ -289,15 +390,8 @@ def resolve(found: list[BodyPoints | None], centers: np.ndarray) -> np.ndarray:
                 idx.append(k)
             k += 1
         start = idx[-1] + 1
-        ev = np.zeros(len(idx))
-        for m, i in enumerate(idx):
-            f = found[i]
-            ev[m] = f.evidence
-            lo, hi = max(i - 2, 0), min(i + 2, n - 1)
-            v = centers[hi] - centers[lo]
-            if np.all(np.isfinite(v)) and np.hypot(*v) >= TRAVEL_MIN:
-                facing = np.subtract(f.nose, f.rear)
-                ev[m] += TRAVEL_WEIGHT if facing @ v > 0 else -TRAVEL_WEIGHT
+        ev = np.array([TAIL_WEIGHT * found[i].tail + w["taper"] * found[i].taper
+                       + w["ears"] * found[i].ears + w["travel"] * travel[i] for i in idx])
         if np.abs(ev).sum() < 1:
             continue                        # nothing to tell the ends apart
         # state 0 = as guessed, 1 = the other way round

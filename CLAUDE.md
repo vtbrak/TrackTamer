@@ -153,6 +153,14 @@ Tamer is the **master** for metadata: every app that records video for it
 per this standard, with `assay` from its fixed list. The user adds other
 apps' pieces over time (an "Apps" section per app). Reading it in Track Tamer
 is planned for after 1.0; don't build before 1.0.
+**Nose and rear end (ROADMAP §17) is built on the `head-tail` branch only**
+(2026-11-10; not in `main`, not released): `core/pose.py`; tracking writes
+`Nose_X`, `Nose_Y`, `Rear_X`, `Rear_Y` beside X and Y (the center, unchanged);
+the playback window and saved video show nose (red), center (yellow), rear
+end (blue). The points are "nose", "center", "rear end" (the tail is not
+reported). **Only x, y for now; measures come later (user).** Good in open
+arenas, still weak on the plus maze (ROADMAP §17 has the trial numbers).
+Tests: `tests/test_pose.py`.
 **Acoustic startle (ROADMAP §13) is built** (2026-11-09, on `main`, not released;
 the target for 1.0): test type "Acoustic Startle Response", `core/asr.py`, setup steps
 Threshold and Stimuli, `<name>_MotionIndex.csv`. Waiting on real chamber videos to

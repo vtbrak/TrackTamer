@@ -315,6 +315,7 @@ TrackTamer/
 │   ├── regions.py   region-role mapping and checks
 │   ├── video.py     read and prepare video frames (from ezTrack)
 │   ├── tracking.py  reference image, tracking, region columns (from ezTrack)
+│   ├── pose.py      nose and rear end from the animal's outline (branch head-tail)
 │   ├── video_setup.py  one video's setup (trim, crop, shapes, regions, scale)
 │   ├── track_run.py    Track: videos one at a time in the background
 │   ├── playback.py     playback and the saved _tracked.mp4 (from ezTrack)
