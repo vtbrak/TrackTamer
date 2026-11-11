@@ -77,7 +77,7 @@ from core.video import (MISSING_STAMPS_ALLOWED, VIDEO_EXTENSIONS, UNREADABLE_WAR
 from core.version import VERSION
 from core.video_setup import OBJECT_TEST, VideoSetup
 from core.asr import (ASR_TEST, asr_summary, is_motion_file, load_motion, make_asr_job,
-                      trial_table)
+                      real_frame_rate, trial_table)
 from core.plotting import aligned_figure, motion_figure
 from core.objects import (distance_px, load_scoring, object_metrics, scoring_table,
                           trial_summary)
@@ -2442,10 +2442,42 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         done = [e for e in targets if e.analyzed]
         self._warn_shared(done)
         self._warn_lost(done)
+        self._warn_repeats(done)
         if failed:
             show_warning(self, "Some files couldn't be analyzed",
                          "Some files couldn't be analyzed, so they have no results. "
                          "The others were analyzed.\n\n" + "\n".join(failed))
+
+    def _warn_repeats(self, entries) -> None:
+        """After Analyze (startle): flag videos where most frames are copies
+        of the frame before. The camera ran slower than the video's frame
+        rate, so there are few real frames around each stimulus."""
+        if self.test_var.get() != ASR_TEST:
+            return
+        window = float(self.config_data["asr_startle_ms"])
+        found = []
+        for e in entries:
+            rate = real_frame_rate(e.summary or {})
+            if rate is None:
+                continue
+            frames, copies = e.summary["Frames"], e.summary["RepeatedFrames"]
+            found.append(f"• {e.label}: {copies:,} of {frames:,} frames "
+                         f"({100 * copies / frames:.0f}%) are repeats, leaving about "
+                         f"{rate:.0f} real frames a second ({rate * window / 1000:.0f} "
+                         f"in each {window:g} ms startle window)")
+        if found:
+            show_warning(
+                self, "Most frames are repeats",
+                "Most of the frames in some videos are repeats. The camera recorded "
+                "slower than the video's frame rate, and the recording app filled in "
+                "with copies of the frame before.\n\n" + "\n".join(found[:10])
+                + ("\n…" if len(found) > 10 else "")
+                + "\n\nThe times and stimulus frames are still right, and repeats are "
+                "left out when the startle peak is found. With so few real frames, "
+                "though, a brief startle can fall between them: amplitudes can come "
+                "out low, and reaction times are only as fine as the gap between "
+                "real frames. Boom Box on a Mac recorded this way at 1280x720 before "
+                "version 1.3.4.")
 
     def _reanalyze(self, entries) -> list[str]:
         """Analyze each entry. One that fails is left without results and

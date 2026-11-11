@@ -138,7 +138,9 @@ For each stimulus, **startle amplitude** = highest motion index in the startle
 window (200 ms after it) minus highest in the baseline window (200 ms before
 it, or before the prepulse on prepulse+pulse trials). Stimuli come from the
 recording app's `_info.json`, or you type the video frames in setup step 4.
-Frames marked as repeated are left out of the peaks. The **Trials** tab lists
+Frames marked as repeated are left out of the peaks, and Analyze warns when
+more than half of a video's frames are repeats (few real frames are left
+around each stimulus, so peaks and reaction times are coarse). The **Trials** tab lists
 Pixel.change, motion.index.before and .after, FrameNo, Time.startle,
 ReactionTime (ms from stimulus to peak) and Startle amplitude. The **Review**
 tab lists every startle; click one to open the video at its stimulus, and use
