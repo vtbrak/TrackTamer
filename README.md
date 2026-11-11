@@ -313,7 +313,7 @@ TrackTamer/
 │   ├── gaps.py      optional filling of short unreadable-frame gaps
 │   ├── plotting.py  path, heatmap & region-map figures
 │   ├── regions.py   region-role mapping and checks
-│   ├── video.py     read and prepare video frames (from ezTrack)
+│   ├── video.py     read and prepare video frames, exact frame jumps (from ezTrack)
 │   ├── tracking.py  reference image, tracking, region columns (from ezTrack)
 │   ├── video_setup.py  one video's setup (trim, crop, shapes, regions, scale)
 │   ├── track_run.py    Track: videos one at a time in the background

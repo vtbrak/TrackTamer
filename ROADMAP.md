@@ -477,6 +477,12 @@ SciPy, Pillow), then:
     session rows).
 11. **Close the app while tracking:** it asks first.
 12. Paths with spaces or non-English letters in folder names.
+13. **Frame jumps (2026-11-10):** in the playback window, drag the slider
+    to several places, use ◀◀ / ▶▶ and the frame steps, and click Review
+    rows: the red mark sits on the animal straight after each jump (not a
+    frame behind) and a long video opens within a couple of seconds. With
+    the Examples videos in place, `python tests\test_seek.py` (in the
+    app's environment) ends with "all ok".
 
 **Known Mac-only or at-risk pieces**
 - ✅ **Launcher:** `Open Behavior Tracker.bat` added alongside the Mac
@@ -1826,6 +1832,32 @@ standalone app (on hold).
   0.9.2's Edit trial info and saved video.
 - ✅ **Released 0.9.2 (2026-11-09):** Edit trial info after tracking, objects
   on the saved video, Add folder skips companion CSVs (tag `v0.9.2`).
+- ✅ **Jumps to a video frame match in-order reading (2026-11-10, not
+  released).** The camera videos store each frame's real capture time, so
+  their frames aren't evenly spaced (gaps of 34–123 ms in one EPM video).
+  OpenCV jumps to frame N by turning N into a time with the average frame
+  rate, so in some stretches it landed on the frame before (about half the
+  sampled frames of every camera video in `Examples/`; the constant-rate ASR
+  clips are exact). Tracking reads in order, so after a jump the playback
+  window could draw the marks on the neighbouring frame. Now
+  `core/video.py` lists each frame's timestamp once per video without
+  decoding (`frame_times`; 0.1 s for a 6-minute video, 1.6 s for the
+  65-minute one), and a jump aims a little early, checks by timestamp which
+  frame it landed on, and reads forward to the exact one (`grab_frame`;
+  same speed as before). `VideoReader.read_at` and the playback window's
+  `FrameSource` use it; without timestamps (another video backend) they
+  fall back to OpenCV's own jump. **Tracking is unchanged:** it still
+  starts with OpenCV's own jump to the start frame and reads on in order,
+  and the reference still reads the frames it always did (`read_near`), so
+  references and positions are identical to before (checked). Playback
+  lines row 0 up with the frame tracking's start jump lands on
+  (`landing_frame`), so old and new tracking files both play back on the
+  frames they were tracked from. The saved `_tracked.mp4` already read the
+  way tracking does. **Left open (user to decide):** with a start frame
+  after 0, tracking's first frame is where OpenCV's jump lands, which can
+  be the frame before the one setup shows as the start; making tracking
+  start on the exact frame would shift those files' rows by a frame.
+  Checked by `tests/test_seek.py` (skips when the videos aren't there).
 - **Future items** (§11): immobility, now to be covered by §12's freezing.
 - **Standalone app** (bundling): on hold until the user says so.
 - New requests from the user.

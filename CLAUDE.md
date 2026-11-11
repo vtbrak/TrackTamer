@@ -44,6 +44,14 @@ tracks videos itself (adapted from ezTrack).
 - `region_dialog.py`: the Match regions dialog.
 - `tests/regress_gui.py`: workflow regression test. Run it after GUI changes
   (`.venv/bin/python tests/regress_gui.py`); it needs the Examples files.
+- **Jumping to a video frame:** never use `cap.set(cv2.CAP_PROP_POS_FRAMES)`
+  for a frame that must match tracking. The camera videos have uneven frame
+  timing, so OpenCV's jump lands a frame off in places. Use
+  `VideoReader.read_at` / `core.video.grab_frame` (checked against the
+  frames' own timestamps, `frame_times`), and `FrameSource` for a tracking
+  file's rows. Tracking's own start jump (`VideoReader.frames`) and the
+  reference's frames (`read_near`) stay as they are so results don't change.
+  `tests/test_seek.py` checks it.
 - **Anaconda install (ROADMAP §14, built 2026-11-03):** `environment.yml`
   (env `track-tamer`, conda-forge only; `tkinterdnd2` via its `pip:`
   section), `find_conda.sh` / `find_conda.bat` (shared conda finders),
