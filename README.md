@@ -20,11 +20,12 @@ how to report problems.
 1. Install [Anaconda or Miniconda](https://www.anaconda.com/download) if the
    computer doesn't have it.
 2. Get the program folder: download the zip from GitHub (or `git clone`).
-   The repository is public: github.com/vtbrak/TrackTamer. Copy
-   the folder **without** its `.venv`, if it has one.
+   The repository is public: github.com/vtbrak/TrackTamer. If you
+   copy the folder from another computer, leave out `app/.venv`, if it has
+   one.
 3. Double-click **`Install Track Tamer.command`** (Mac) or
    **`Install Track Tamer.bat`** (Windows). It finds Anaconda, builds the
-   program's own environment (`track-tamer`, from `environment.yml`,
+   program's own environment (`track-tamer`, from `app/environment.yml`,
    using the free conda-forge channel), and says Done or Failed. It only needs
    doing once; run it again after an update to bring the environment up to
    date.
@@ -43,7 +44,7 @@ environment only; the program folder and your data, results and settings
 stay.
 
 ### Without Anaconda
-The Open launchers fall back to a local Python environment (`.venv`), built
+The Open launchers fall back to a local Python environment (`app/.venv`), built
 and filled automatically on the first run. On Windows this needs Python 3 from
 [python.org](https://www.python.org/downloads/) (tick "Add python.exe to
 PATH" during setup).
@@ -51,9 +52,10 @@ PATH" during setup).
 To run from a terminal instead:
 
 ```bash
+cd app
 conda activate track-tamer && python gui.py   # Anaconda
-./.venv/bin/python gui.py                          # .venv, Mac
-.venv\Scripts\python.exe gui.py                     # .venv, Windows
+./.venv/bin/python gui.py                     # .venv, Mac
+.venv\Scripts\python.exe gui.py                # .venv, Windows
 ```
 
 ## What it computes
@@ -304,40 +306,48 @@ Only analyzed files are exported. If a workbook is open in Excel, close it
 before exporting again.
 
 ## Layout
+The project folder holds only what you use directly; the program itself is
+in `app`.
 ```
 TrackTamer/
-├── core/            analysis and tracking engine (no GUI dependencies)
-│   ├── export.py    write _analysis.xlsx and plot images
-│   ├── loader.py    read & validate CSVs, detect region columns
-│   ├── metrics.py   summary + time-binned metrics
-│   ├── gaps.py      optional filling of short unreadable-frame gaps
-│   ├── plotting.py  path, heatmap & region-map figures
-│   ├── regions.py   region-role mapping and checks
-│   ├── video.py     read and prepare video frames (from ezTrack)
-│   ├── tracking.py  reference image, tracking, region columns (from ezTrack)
-│   ├── pose.py      nose and rear end from the animal's outline (branch head-tail)
-│   ├── video_setup.py  one video's setup (trim, crop, shapes, regions, scale)
-│   ├── track_run.py    Track: videos one at a time in the background
-│   ├── playback.py     playback and the saved _tracked.mp4 (from ezTrack)
-│   ├── objects.py      object recognition: objects, zones, scoring, results
-│   ├── asr.py          acoustic startle: motion index, trials, PPI, habituation
-│   └── config.py    saved settings (config.json)
-├── gui.py           tkinter front end
-├── setup_window.py  Set up videos… window
-├── review_panel.py  Review tab, playback window and object scoring
-├── about.py         About window (credits, citation, license)
-├── region_dialog.py Match regions dialog
-├── tooltip.py       hover tooltips
-├── dialogs.py       pop-up messages (same look on Mac and Windows)
-├── environment.yml  Anaconda environment (keep in step with requirements.txt)
-├── requirements.txt packages for the .venv fallback
-├── find_conda.sh / find_conda.bat   locate Anaconda for the launchers
 ├── Install Track Tamer.command / .bat     build or update the environment
 ├── Open Track Tamer.command / .bat        start the app
-└── Uninstall Track Tamer.command / .bat   remove the environment
+├── Uninstall Track Tamer.command / .bat   remove the environment
+├── README.md, INSTALL.md, TESTING.md, LICENSE
+├── app/             the program
+│   ├── core/            analysis and tracking engine (no GUI dependencies)
+│   │   ├── export.py    write _analysis.xlsx and plot images
+│   │   ├── loader.py    read & validate CSVs, detect region columns
+│   │   ├── metrics.py   summary + time-binned metrics
+│   │   ├── gaps.py      optional filling of short unreadable-frame gaps
+│   │   ├── plotting.py  path, heatmap & region-map figures
+│   │   ├── regions.py   region-role mapping and checks
+│   │   ├── video.py     read and prepare video frames, exact frame jumps (from ezTrack)
+│   │   ├── tracking.py  reference image, tracking, region columns (from ezTrack)
+│   │   ├── pose.py      nose and rear end from the animal's outline (branch head-tail)
+│   │   ├── video_setup.py  one video's setup (trim, crop, shapes, regions, scale)
+│   │   ├── track_run.py    Track: videos one at a time in the background
+│   │   ├── playback.py     playback and the saved _tracked.mp4 (from ezTrack)
+│   │   ├── objects.py      object recognition: objects, zones, scoring, results
+│   │   ├── asr.py          acoustic startle: motion index, trials, PPI, habituation
+│   │   └── config.py    saved settings (config.json)
+│   ├── gui.py           tkinter front end
+│   ├── setup_window.py  Set up videos… window
+│   ├── review_panel.py  Review tab, playback window and object scoring
+│   ├── about.py         About window (credits, citation, license)
+│   ├── region_dialog.py Match regions dialog
+│   ├── tooltip.py       hover tooltips
+│   ├── dialogs.py       pop-up messages (same look on Mac and Windows)
+│   ├── tests/           checks run during development
+│   ├── prototypes/      trial scripts for nose and rear end (branch head-tail)
+│   ├── environment.yml  Anaconda environment (keep in step with requirements.txt)
+│   ├── requirements.txt packages for the .venv fallback
+│   ├── find_conda.sh / find_conda.bat   locate Anaconda for the launchers
+│   └── config.json      your saved settings (made when the app first runs)
+└── docs/            roadmap and the video metadata standard
 ```
 
-The engine in `core/` is deliberately GUI-free so it can be scripted or, later,
+The engine in `app/core/` is deliberately GUI-free so it can be scripted or, later,
 bundled into a standalone app (e.g. with PyInstaller).
 
 ## Credits and license

@@ -1,6 +1,6 @@
 """Do the lighter ears tell the nose end? Checked on frames where a long tail settles it."""
 import sys, os, numpy as np, cv2
-sys.path.insert(0, os.getcwd())
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # the app folder
 from core import load_csv, pose
 from core.playback import open_playback, load_reference
 from core.video import VideoReader

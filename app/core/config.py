@@ -12,9 +12,23 @@ import json
 import os
 import tempfile
 
-CONFIG_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json"
-)
+# config.json sits in the program's "app" folder, beside gui.py.
+_APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_PATH = os.path.join(_APP_DIR, "config.json")
+# Before the files were gathered into "app" it sat one level up, in the
+# project folder; a file left there is moved over the first time it's needed.
+_OLD_CONFIG_PATH = os.path.join(os.path.dirname(_APP_DIR), "config.json")
+
+
+def _adopt_old_config() -> None:
+    """Move a settings file from the old place to the new one, if there's
+    one there and none here. Never stops the app: on any error the old file
+    stays where it is and defaults are used."""
+    try:
+        if not os.path.exists(CONFIG_PATH) and os.path.isfile(_OLD_CONFIG_PATH):
+            os.replace(_OLD_CONFIG_PATH, CONFIG_PATH)
+    except OSError:
+        pass
 
 DEFAULTS: dict = {
     "fps": 20.0,
@@ -127,6 +141,8 @@ def _merge(defaults: dict, loaded: dict) -> dict:
 
 def load_config(path: str = CONFIG_PATH) -> dict:
     """Return settings from `path`, filling anything missing with defaults."""
+    if path == CONFIG_PATH:
+        _adopt_old_config()
     try:
         with open(path, "r", encoding="utf-8") as f:
             loaded = json.load(f)

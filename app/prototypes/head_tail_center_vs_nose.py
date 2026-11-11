@@ -1,5 +1,5 @@
 import os, sys, numpy as np, cv2
-sys.path.insert(0, os.getcwd()); sys.path.insert(0, sys.argv[1])
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # the app folder; sys.path.insert(0, sys.argv[1])
 import proto
 from core import load_csv
 from core.objects import file_objects, distance_px, load_scoring

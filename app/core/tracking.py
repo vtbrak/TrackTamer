@@ -84,10 +84,10 @@ def make_reference(path: str, prep: Prep, start: int = 0, end: int | None = None
         end = reader.frame_count if end is None else min(end, reader.frame_count)
         collection = []
         for index in np.linspace(start, end, num_frames):
-            frame = reader.read_at(int(index))
+            frame = reader.read_near(int(index))
             tries = 0
             while frame is None and tries < 100:
-                frame = reader.read_at(int(rng.integers(start, end)))
+                frame = reader.read_near(int(rng.integers(start, end)))
                 tries += 1
             if frame is None:
                 raise ValueError(f"Couldn't read frames from {os.path.basename(path)}.")

@@ -1,5 +1,5 @@
 """The test data: real videos tracked in this app and their tracking files,
-in the project's Examples folder (gitignored; user, 2026-11-05).
+in the project's Examples folder (beside the app folder; gitignored; user, 2026-11-05).
 
 - EPM: 6_2024-04-01_11-49-23 (Elevated Plus Maze, 16.64 fps)
 - OF:  1_2026-08-17_13-27-03 (Open Field, 9.84 fps, 65 min)
@@ -8,8 +8,8 @@ in the project's Examples folder (gitignored; user, 2026-11-05).
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXAMPLES = os.path.join(ROOT, "Examples")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # the "app" folder
+EXAMPLES = os.path.join(os.path.dirname(ROOT), "Examples")            # beside it
 EPM = os.path.join(EXAMPLES, "6_2024-04-01_11-49-23_LocationOutput.csv")
 OF = os.path.join(EXAMPLES, "1_2026-08-17_13-27-03_LocationOutput.csv")
 EPM_VIDEO = os.path.join(EXAMPLES, "6_2024-04-01_11-49-23.mp4")

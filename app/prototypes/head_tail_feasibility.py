@@ -1,7 +1,7 @@
 """Feasibility prototype: head and tail from the animal's silhouette."""
 import os, sys, json
 import cv2, numpy as np
-sys.path.insert(0, os.getcwd())
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # the app folder
 from core import load_csv
 from core.playback import open_playback, load_reference
 from core.video import prepare

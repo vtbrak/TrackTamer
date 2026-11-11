@@ -1,6 +1,6 @@
 """Trial of the app's own tracking path (make_job -> run_job) on the new videos."""
 import sys, os, time, json, numpy as np, cv2
-sys.path.insert(0, os.getcwd())
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # the app folder
 from core.tracking import TrackingParams
 from core.track_run import make_job, run_job
 from core.video import video_info

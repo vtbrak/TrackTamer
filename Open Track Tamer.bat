@@ -2,11 +2,11 @@
 REM Double-click launcher for Track Tamer GUI (Windows).
 REM Uses the Anaconda environment from "Install Track Tamer.bat" when
 REM it's installed. On computers without Anaconda it falls back to the
-REM project's own virtual environment (.venv), creating it on first run.
+REM program's own virtual environment (app\.venv), creating it on first run.
 REM (Mac equivalent: "Open Track Tamer.command")
 
-REM Move to this script's own folder (handles spaces in the path).
-cd /d "%~dp0"
+REM Move to the program's "app" folder beside this script (handles spaces in the path).
+cd /d "%~dp0app"
 
 call find_conda.bat
 if errorlevel 1 goto venv

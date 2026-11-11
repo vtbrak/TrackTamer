@@ -1,5 +1,5 @@
 import os, sys, json, numpy as np, cv2
-sys.path.insert(0, os.getcwd()); sys.path.insert(0, "prototypes")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # the app folder; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import head_tail_feasibility as proto
 from core import load_csv
 from core.playback import open_playback

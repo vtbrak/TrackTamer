@@ -1,5 +1,12 @@
 # Track Tamer — Roadmap
 
+**Where files are (since 2026-11-10):** the program is in the `app` folder
+(`app/gui.py`, `app/core/`, `app/tests/`, the environment files and conda
+finders), this file and the metadata standard are in `docs`, and the
+project folder itself holds only the launchers, README, INSTALL, TESTING
+and LICENSE. Paths in this document such as `core/...` and `tests/...` are
+inside `app`.
+
 Feature and analysis plan for the behavior-tracking analyzer. This is the design
 doc: what's built, what was decided (and why), and what's next. Nothing new is
 built until it's agreed here.
@@ -477,6 +484,12 @@ SciPy, Pillow), then:
     session rows).
 11. **Close the app while tracking:** it asks first.
 12. Paths with spaces or non-English letters in folder names.
+13. **Frame jumps (2026-11-10):** in the playback window, drag the slider
+    to several places, use ◀◀ / ▶▶ and the frame steps, and click Review
+    rows: the red mark sits on the animal straight after each jump (not a
+    frame behind) and a long video opens within a couple of seconds. With
+    the Examples videos in place, `python tests\test_seek.py` (in the
+    app's environment) ends with "all ok".
 
 **Known Mac-only or at-risk pieces**
 - ✅ **Launcher:** `Open Behavior Tracker.bat` added alongside the Mac
@@ -1670,11 +1683,11 @@ A small gain on these videos; more on videos where the ears show.
 faint tails and head dips on the open arms, the bar); a turned or hunched
 animal; points on wall reflections in clear-walled arenas when the crop
 leaves the wall in.
-**Found on the way (to fix on `main`):** in the ten added videos, jumping to
-a frame can land one frame earlier than reading the video in order does
-(checked on three of them; no unreadable frames reported). Tracking reads in
-order, so the playback window and the saved-video check can show the marks
-one frame off after a jump. It is in `main` too.
+**Found on the way:** in the ten added videos, jumping to a frame could land
+one frame earlier than reading the video in order does, so playback could
+show the marks one frame off after a jump. **Fixed on `main` 2026-11-10**
+(exact frame jumps, `tests/test_seek.py`) and merged into this branch the
+same day.
 
 **Feasibility test (2026-11-09; `prototypes/head_tail_feasibility.py`, sheets
 of marked frames in `Examples/head-tail test/`).** Method: silhouette = the
@@ -1826,6 +1839,13 @@ until the user asks; when they ask what's next, work from the top:
 
 Not ranked: reading the capture apps' info files (§16, after 1.0) and the
 standalone app (on hold).
+
+**Marker for later: Puzzle Box (user, 2026-11-10).** Creature Capture
+records it (assay `Puzzle Box`, with trial days and several sessions a day;
+arena `PuzzleBox`, camera `Overhead`), and the name is in the standard's
+assay list. **Not analyzed in Track Tamer for now**, marked like Skilled
+Reaching. Kept here so it isn't forgotten: if it's taken up, it needs its
+measures decided first (nothing is specified yet).
 
 **Everything planned so far is built** (as of 2026-10-30). Still open:
 - ✅ **Anaconda install (§14)**: built 2026-11-03 on `main`, merged into
@@ -2021,6 +2041,37 @@ standalone app (on hold).
   0.9.2's Edit trial info and saved video.
 - ✅ **Released 0.9.2 (2026-11-09):** Edit trial info after tracking, objects
   on the saved video, Add folder skips companion CSVs (tag `v0.9.2`).
+- ✅ **Jumps to a video frame match in-order reading (2026-11-10, not
+  released).** The camera videos store each frame's real capture time, so
+  their frames aren't evenly spaced (gaps of 34–123 ms in one EPM video).
+  OpenCV jumps to frame N by turning N into a time with the average frame
+  rate, so in some stretches it landed on the frame before (about half the
+  sampled frames of every camera video in `Examples/`; the constant-rate ASR
+  clips are exact). Tracking reads in order, so after a jump the playback
+  window could draw the marks on the neighbouring frame. Now
+  `core/video.py` lists each frame's timestamp once per video without
+  decoding (`frame_times`; 0.1 s for a 6-minute video, 1.6 s for the
+  65-minute one), and a jump aims a little early, checks by timestamp which
+  frame it landed on, and reads forward to the exact one (`grab_frame`;
+  same speed as before). `VideoReader.read_at` and the playback window's
+  `FrameSource` use it; without timestamps (another video backend) they
+  fall back to OpenCV's own jump. **Tracking starts on exactly the start
+  frame chosen in setup (user, 2026-11-10):** `VideoReader.frames` goes to
+  the start frame the checked way and reads on in order, so the frame setup
+  shows as the start is the first tracked frame, and playback row r and the
+  saved `_tracked.mp4` are frame start + r. Before, tracking started where
+  OpenCV's jump landed, which could be the frame before. Trials that start
+  at frame 0, or where the old jump was right, track exactly as before.
+  **A file tracked before this with a start after 0 may have been tracked
+  from the frame before its start, and then plays back one frame off:
+  re-track it** (the user: nothing tracked so far needs keeping). Of the
+  example files, the Open Field one (`1_2026-08-17_13-27-03`, start 730)
+  was tracked from frame 729 and needs re-tracking; the EPM one (start
+  674) and the object trial (start 0) are right. Say so in the notes of
+  the release this goes out in. The reference image still reads the frames
+  it always did (`read_near`: OpenCV's own jump, any frame nearby does), so
+  references are unchanged.
+  Checked by `tests/test_seek.py` (skips when the videos aren't there).
 - **Future items** (§11): immobility, now to be covered by §12's freezing.
 - **Standalone app** (bundling): on hold until the user says so.
 - New requests from the user.
