@@ -138,6 +138,84 @@ check("no pulse-alone trials: no PPI",
       "ASR_PPI_Overall_pct" not in session_measures(trials[trials["Type"] != "pulse"]))
 
 # Typed frames and the recording app's files.
+# Startle by sound level (sessions that step through levels).
+from core.asr import (TRIAL_COLUMNS, baseline_criterion, level_curves, level_measures,
+                      startle_threshold)
+def session(spec, quiet=0):
+    """Pulse-alone trials: spec is [(sound, dB, [startle-window peaks])]. Every
+    baseline-window peak is 0.5, 0.6 or 0.7 in turn."""
+    out, n = [], 0
+    for sound, db, peaks in spec:
+        for peak in peaks:
+            before = (0.5, 0.6, 0.7)[n % 3]; n += 1
+            out.append({"Type": "pulse", "Pulse_kHz": sound if sound != "noise" else None,
+                        "Pulse_Kind": "noise" if sound == "noise" else "tone", "Pulse_dB": db,
+                        "motion.index.before": before, "motion.index.after": peak,
+                        "Startle amplitude": round(peak - before, 4)})
+    for _ in range(quiet):
+        out.append({"Type": "none", "motion.index.before": 0.6, "motion.index.after": 0.65,
+                    "Startle amplitude": 0.05})
+    return pd.DataFrame(out, columns=TRIAL_COLUMNS)
+
+io = session([("noise", 70, [0.6, 0.7, 0.6]), ("noise", 80, [0.9, 1.0, 0.8]),
+              ("noise", 90, [0.6, 0.5, 0.7]), ("noise", 100, [3.0, 3.6, 3.3]),
+              ("noise", 110, [5.0, 5.6, 5.3]), ("noise", 120, [4.0, 4.6, 4.3])], quiet=3)
+crit = baseline_criterion(io)
+before = io["motion.index.before"].to_numpy(float)
+check("the criterion is the mean of every trial's baseline peak plus 2 SD of them",
+      abs(crit - (before.mean() + 2 * before.std(ddof=1))) < 1e-9
+      and abs(baseline_criterion(io, 3) - (before.mean() + 3 * before.std(ddof=1))) < 1e-9
+      and baseline_criterion(io.iloc[:1]) is None)
+curve = level_curves(io)["noise"]
+check("the pulse-alone trials are grouped by level, in rising order, with mean and spread",
+      [r["db"] for r in curve] == [70, 80, 90, 100, 110, 120] and all(r["n"] == 3 for r in curve)
+      and abs(curve[3]["peak"] - 3.3) < 1e-9 and curve[3]["sem"] > 0
+      and list(level_curves(io)) == ["noise"])
+check("the threshold is the lowest level from which it and every louder level respond: "
+      "80 dB responds here but 90 doesn't, so it's 100",
+      curve[1]["peak"] > crit > curve[2]["peak"] and startle_threshold(curve, crit) == 100)
+check("no threshold when the loudest level doesn't respond, or there's no criterion",
+      startle_threshold(curve[:3], crit) is None and startle_threshold(curve, None) is None)
+m = level_measures(io)
+check("the Summary gets the mean and count at each level, the threshold, and the largest "
+      "mean with its level",
+      [k for k in m if k.startswith("ASR_Mean_")] == [f"ASR_Mean_pulse_{d}dB" for d in
+                                                      (70, 80, 90, 100, 110, 120)]
+      and m["ASR_N_pulse_100dB"] == 3 and m["ASR_Threshold_dB"] == 100
+      and m["ASR_Max_pulse_dB"] == 110 and abs(m["ASR_Max_pulse"] - 4.7) < 0.2
+      and abs(m["ASR_ThresholdCriterion_pct"] - round(crit, 4)) < 1e-9)
+whole = session_measures(io)
+check("the no-stimulus trials stay their own column beside the levels (nothing subtracted)",
+      whole["ASR_Mean_none"] == 0.05 and whole["ASR_N_none"] == 3
+      and whole["ASR_Mean_pulse_100dB"] == m["ASR_Mean_pulse_100dB"])
+from core.metrics import key_measures
+keys = key_measures("Acoustic Startle Response", columns=whole)
+check("the threshold and largest response come right after the means in the key measures",
+      keys.index("ASR_Threshold_dB") == keys.index("ASR_Mean_pulse_120dB") + 1
+      and keys[keys.index("ASR_Threshold_dB") + 1:][:2] == ["ASR_Max_pulse", "ASR_Max_pulse_dB"])
+check("a higher criterion can move the threshold up",
+      level_measures(io, threshold_sd=40)["ASR_Threshold_dB"] > 100
+      or pd.isna(level_measures(io, threshold_sd=40)["ASR_Threshold_dB"]))
+one_level = session([("noise", 120, [4.0, 4.5, 5.0])])
+check("a session with one level gets no level columns", level_measures(one_level) == {}
+      and not any("dB" in k for k in session_measures(one_level)))
+both = session([(8.0, 70, [0.6, 0.6]), (8.0, 90, [3.0, 3.2]), (8.0, 110, [5.0, 5.2]),
+                (16.0, 70, [0.6, 0.6]), (16.0, 90, [0.6, 0.7]), (16.0, 110, [2.0, 2.2])])
+mb = level_measures(both)
+check("frequency and level both varying: each pair, each level pooled, and a threshold and "
+      "largest response for each sound",
+      mb["ASR_N_pulse_90dB"] == 4 and mb["ASR_N_pulse_8kHz_90dB"] == 2
+      and abs(mb["ASR_Mean_pulse_16kHz_110dB"] - 1.5) < 0.3
+      and mb["ASR_Threshold_8kHz_dB"] == 90 and mb["ASR_Threshold_16kHz_dB"] == 110
+      and mb["ASR_Max_pulse_8kHz_dB"] == 110 and "ASR_Threshold_dB" not in mb)
+from core.plotting import level_figure
+shown_fig = level_figure(fake([]), io)
+flat_fig = level_figure(fake([]), one_level)
+check("the level plot draws a curve with its threshold, or says there's none to draw",
+      len(shown_fig.axes[0].lines) >= 2 and "threshold 100 dB" in
+      [t.get_text() for t in shown_fig.axes[0].texts]
+      and "no curve" in flat_fig.axes[0].texts[0].get_text())
+
 check("typed stimulus frames: any separators, sorted, repeats dropped",
       parse_frames("50, 120\n90 50") == [50, 90, 120])
 try:

@@ -93,7 +93,7 @@ keep videos and their info file together.
 - For Track Tamer's own files (added to a video's name, so apps must not use
   them): `_LocationOutput.csv`, `_reference.png`, `_ObjectScoring.csv`,
   `_analysis.xlsx`, `_path.png`, `_heatmap.png`, `_tracked.mp4`,
-  `_MotionIndex.csv`, `_trace.png`, `_aligned.png`.
+  `_MotionIndex.csv`, `_trace.png`, `_aligned.png`, `_levels.png`.
 
 Track Tamer skips `_frames.csv`, `_info.csv` and `_trials.csv` when a folder is
 added.
@@ -429,11 +429,11 @@ Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
   | `PPI Default` and other PPI protocols | `Prepulse Inhibition` | `type`, `prepulse_db`, `interval_ms` |
 
   Levels can differ from stimulus to stimulus, so read `pulse_db` from each
-  one. **Track Tamer today** reports startle per trial type and per pulse
-  frequency, prepulse inhibition per prepulse level and interval, and
-  habituation by trial order; **it doesn't yet group by pulse level**
-  (`pulse_db`), which Hearing Test and I/O sessions need (not built; the
-  level is in the Trials table for each trial).
+  one. **Track Tamer** reports startle per trial type and per pulse
+  frequency, prepulse inhibition per prepulse level and interval,
+  habituation by trial order, and (since 2026-11-11) **per pulse level**
+  for sessions that step through levels, with a startle threshold and the
+  largest response, which is what Hearing Test and I/O sessions need.
 
   In an `I/O` session Boom Box's own trial types are `startle` and
   `no_stim`. In `stimuli` a startle trial is `type` `pulse` with

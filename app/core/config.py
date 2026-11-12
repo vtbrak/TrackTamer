@@ -80,6 +80,10 @@ DEFAULTS: dict = {
     "asr_startle_ms": 200.0,
     "asr_baseline_ms": 200.0,
     "asr_block_trials": 10,
+    # Startle threshold (sessions that step through sound levels): a level
+    # responds when its mean startle-window peak is above the mean of the
+    # session's baseline-window peaks plus this many standard deviations.
+    "asr_threshold_sd": 2.0,
     # Plus maze, open field and object videos: warn after Analyze when more
     # than this percent of a session's frames are ones the recording app
     # repeated (the camera fell behind). Provisional; the user may change it.

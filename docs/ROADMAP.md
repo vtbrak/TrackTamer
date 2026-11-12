@@ -1335,6 +1335,37 @@ Trials / Motion Trace / Aligned Trials; tests `test_asr.py`, `test_asr_gui.py`).
   per pulse frequency; `pulse_freq_hz` and `pulse_stimulus` added to the
   standard, read from `boom_box.trials` until Boom Box writes them in `stimuli`.
 - Stimuli from the info file, or typed video frames (treated as pulses).
+- **Startle by sound level (decided and built 2026-11-11)**, for sessions
+  whose pulse-alone trials step through levels (Boom Box's Hearing Test and
+  I/O). Decided with the user:
+  - The **mean and count of startle amplitude at each dB level**
+    (`ASR_Mean_pulse_70dB`, `ASR_N_pulse_70dB`), only when a session uses
+    more than one level (a fixed-level session would just repeat its
+    overall mean).
+  - **Startle threshold** (`ASR_Threshold_dB`): the lowest level from which
+    that level and every louder one gives a response. A level responds
+    when its mean startle-window peak is above the mean of every trial's
+    baseline-window peak plus 2 SD of them (`ASR_ThresholdCriterion_pct`);
+    the 2 is the "Threshold criterion (SD)" box, which locks at Analyze.
+    Blank when the loudest level doesn't respond.
+  - **Maximum response** (`ASR_Max_pulse`, `ASR_Max_pulse_dB`): the largest
+    level mean and its level. No slope.
+  - **No-stimulus trials stay their own column** beside the levels
+    (`ASR_Mean_none`); nothing is subtracted.
+  - **Frequency and level both varying**: a mean for each pair
+    (`ASR_Mean_pulse_8kHz_90dB`) as well as each alone; the threshold and
+    maximum are then per sound (`ASR_Threshold_8kHz_dB`), since pooling
+    different sounds would mix their curves.
+  - A third plot, the **Startle by Level** tab: mean ± SEM against dB, one
+    line per sound, the no-stimulus mean dashed, each threshold marked;
+    exported as `<name>_levels.png`.
+  - Sounds are listed by rising frequency, then noise (was alphabetical).
+  - **Habituation is untouched for now**: the user has more calculations
+    for it to come. Until then its blocks still run across every
+    pulse-alone trial in order, which means little for a session that
+    steps through levels.
+  `core/asr.py` (`level_curves`, `baseline_criterion`, `startle_threshold`,
+  `level_measures`), `plotting.level_figure`.
 - The threshold locks at the first Track; the windows and block size lock at
   Analyze. Always full size (no downsampling). The whole video by default.
 **Checked:** the five paper clips (101 frames, 30 fps; stimulus frame 50

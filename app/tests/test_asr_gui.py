@@ -52,6 +52,9 @@ def check(label, cond):
 app = gui.TrackTamerApp(); app.update()
 app.test_var.set("Acoustic Startle Response"); app._on_test_type(); app.update()
 tabs = [app.nb.tab(t, "text") for t in app.nb.tabs()]
+check("the Startle by Level tab shows for startle only, with the threshold criterion box",
+      app.nb.tab(app.tab_level, "state") == "normal" and app.asr_sd_var.get() == "2"
+      and bool(app.asr_sd_entry.winfo_manager()))
 check("startle settings and tabs replace the others",
       bool(app.asr_bar.winfo_manager()) and not app.entries_section.winfo_manager()
       and tabs[:4] == ["Summary", "Trials", "Motion Trace", "Aligned Trials"]
@@ -147,8 +150,9 @@ check("startle settings lock at Analyze; threshold locked after Track",
 log.clear(); app.export(); app.update()
 files = sorted(f for f in os.listdir(tmp) if f.startswith("clip_"))
 print("   files:", files)
-check("export writes the workbook and two images",
-      {"clip_analysis.xlsx", "clip_trace.png", "clip_aligned.png", "clip_MotionIndex.csv"} <= set(files)
+check("export writes the workbook and three images",
+      {"clip_analysis.xlsx", "clip_trace.png", "clip_aligned.png", "clip_levels.png",
+       "clip_MotionIndex.csv"} <= set(files)
       and "Export finished" in log)
 sheets = pd.read_excel(os.path.join(tmp, "clip_analysis.xlsx"), sheet_name=None)
 check("workbook has Experiment, Summary, Trials, Settings and Setup",
@@ -166,12 +170,15 @@ check("the Setup sheet lists the typed stimulus frames", str(setup_rows["Video f
 got = dict(zip(sheets["Settings"]["Setting"], sheets["Settings"]["Value"]))
 check("Settings records the threshold and windows",
       float(got["Intensity threshold"]) == 15 and float(got["Startle window (ms)"]) == 200
+      and float(got["Threshold criterion (SD)"]) == 2
       and got["Stimuli from"] == "typed in")
 app.fig_dump = (app._path_fig(e, app._plot_settings()), app._heat_fig(e, app._plot_settings()))
 for fig, name in zip(app.fig_dump, ("asr_trace.png", "asr_aligned.png")):
     fig.savefig(os.path.join(os.environ.get("ASR_SHOTS", tmp), name))
 log.clear(); app.test_var.set("Open Field"); app.files[0].summary = None; app._apply_lock(); app._on_test_type()
 app.analyze(); app.update()
+check("the Startle by Level tab is hidden for other tests",
+      app.nb.tab(app.tab_level, "state") == "hidden")
 check("a startle file can't be analyzed as another test", "Some files don't fit this test" in log and not e.analyzed)
 app.test_var.set("Acoustic Startle Response"); app._on_test_type()
 app.clear_files(); app.add_files([os.path.join(tmp, "clip_MotionIndex.csv")]); app.update()

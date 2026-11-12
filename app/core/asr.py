@@ -421,9 +421,114 @@ def _pulse_label(row) -> str:
     return str(row.get("Pulse_Kind") or "") if row.get("Pulse_Kind") == "noise" else ""
 
 
-def session_measures(trials: pd.DataFrame, block_trials: int = 10) -> dict:
+# --- startle by sound level -------------------------------------------------
+def level_curves(trials: pd.DataFrame) -> dict[str, list[dict]]:
+    """The pulse-alone trials grouped by sound, then by pulse level:
+    {sound: [{"db", "n", "mean", "sem", "peak"}, ...]} with the levels in
+    rising order. `sound` is "8kHz", "noise", or "" when the file doesn't
+    say; `mean` and `sem` are of the startle amplitude, and `peak` is the
+    mean of the startle-window peaks (what the threshold is judged on).
+    Only trials with an amplitude and a level are used."""
+    if trials is None or trials.empty or "Pulse_dB" not in trials.columns:
+        return {}
+    used = trials[(trials["Type"] == PULSE)].dropna(subset=["Startle amplitude", "Pulse_dB"])
+    if used.empty:
+        return {}
+    sounds = used.apply(_pulse_label, axis=1)
+    out: dict[str, list[dict]] = {}
+    for sound in sorted(set(sounds), key=_sound_order):
+        part = used[sounds == sound]
+        rows = []
+        for db in sorted(set(part["Pulse_dB"].astype(float))):
+            at = part[part["Pulse_dB"].astype(float) == db]
+            values = at["Startle amplitude"].astype(float).to_numpy()
+            rows.append({"db": db, "n": len(values), "mean": _mean(values.tolist()),
+                         "sem": (float(values.std(ddof=1) / math.sqrt(len(values)))
+                                 if len(values) > 1 else 0.0),
+                         "peak": float(at["motion.index.after"].astype(float).mean())})
+        out[sound] = rows
+    return out
+
+
+def baseline_criterion(trials: pd.DataFrame, sd: float = 2.0) -> float | None:
+    """The motion index a level's response has to beat: the mean of every
+    trial's baseline-window peak plus `sd` standard deviations of them
+    (user, 2026-11-11). None with fewer than two baseline windows."""
+    if trials is None or trials.empty or "motion.index.before" not in trials.columns:
+        return None
+    before = trials["motion.index.before"].dropna().astype(float).to_numpy()
+    if len(before) < 2:
+        return None
+    return float(before.mean() + float(sd) * before.std(ddof=1))
+
+
+def startle_threshold(levels: list[dict], criterion: float | None) -> float | None:
+    """The lowest level from which that level and every louder one gives a
+    response (its mean startle-window peak is above `criterion`), so a
+    chance response at one quiet level doesn't set it (user, 2026-11-11).
+    None if the loudest level doesn't respond, or there's no criterion."""
+    if criterion is None or not levels:
+        return None
+    threshold = None
+    for row in reversed(levels):            # from the loudest down
+        if not row["peak"] > criterion:
+            break
+        threshold = row["db"]
+    return threshold
+
+
+def level_measures(trials: pd.DataFrame, threshold_sd: float = 2.0) -> dict:
+    """The Summary's startle-by-level columns, for sessions whose pulse-alone
+    trials use more than one level (Boom Box's Hearing Test and I/O): the
+    mean and count at each level (and at each sound-and-level pair when the
+    sound varies too), the largest of those means and its level, and the
+    startle threshold. Per sound when there's more than one, since different
+    sounds make different curves. {} for a one-level session."""
+    curves = level_curves(trials)
+    if not any(len(rows) > 1 for rows in curves.values()):
+        return {}
+    out: dict = {}
+    several = len(curves) > 1
+    used = trials[(trials["Type"] == PULSE)].dropna(subset=["Startle amplitude", "Pulse_dB"])
+    for db in sorted(set(used["Pulse_dB"].astype(float))):      # each level, sounds pooled
+        values = used[used["Pulse_dB"].astype(float) == db]["Startle amplitude"]
+        out[f"ASR_N_{PULSE}_{_level(db)}dB"] = len(values)
+        out[f"ASR_Mean_{PULSE}_{_level(db)}dB"] = _mean(values.astype(float).tolist())
+    if several:                                                 # each sound-and-level pair
+        for sound, rows in curves.items():
+            for row in rows:
+                tag = "_".join(x for x in (sound, f"{_level(row['db'])}dB") if x)
+                out[f"ASR_N_{PULSE}_{tag}"] = row["n"]
+                out[f"ASR_Mean_{PULSE}_{tag}"] = row["mean"]
+    criterion = baseline_criterion(trials, threshold_sd)
+    out["ASR_ThresholdCriterion_pct"] = (round(criterion, 4) if criterion is not None
+                                         else float("nan"))
+    for sound, rows in curves.items():
+        if len(rows) < 2:
+            continue
+        name = f"_{sound}" if several and sound else ""
+        best = max(rows, key=lambda r: r["mean"])
+        threshold = startle_threshold(rows, criterion)
+        out[f"ASR_Threshold{name}_dB"] = threshold if threshold is not None else float("nan")
+        out[f"ASR_Max_{PULSE}{name}"] = best["mean"]
+        out[f"ASR_Max_{PULSE}{name}_dB"] = best["db"]
+    return out
+
+
+def _sound_order(label: str):
+    """Sounds in a sensible order: tones by rising frequency, then noise,
+    then anything unnamed (not "12kHz" before "4kHz", as plain sorting gives)."""
+    try:
+        return (0, float(label[:-3])) if label.endswith("kHz") else (1, 0.0)
+    except ValueError:
+        return (2, 0.0)
+
+
+def session_measures(trials: pd.DataFrame, block_trials: int = 10,
+                     threshold_sd: float = 2.0) -> dict:
     """Per trial type, prepulse inhibition and habituation, every one from the
-    trials' startle amplitudes as shown.
+    trials' startle amplitudes as shown; and, for sessions that step through
+    sound levels, the measures per level (`level_measures`).
 
     %PPI = 100 x (1 - mean prepulse+pulse amplitude / mean pulse-alone
     amplitude), per prepulse level and interval and overall. Habituation splits
@@ -441,7 +546,7 @@ def session_measures(trials: pd.DataFrame, block_trials: int = 10) -> dict:
         # The same per pulse frequency (or noise), when the file records it.
         if "Pulse_kHz" in group.columns:
             label = group.apply(_pulse_label, axis=1)
-            for name in sorted(x for x in set(label) if x):
+            for name in sorted((x for x in set(label) if x), key=_sound_order):
                 part = group[label == name]["Startle amplitude"].astype(float).tolist()
                 out[f"ASR_N_{kind}_{name}"] = len(part)
                 out[f"ASR_Mean_{kind}_{name}"] = _mean(part)
@@ -464,6 +569,7 @@ def session_measures(trials: pd.DataFrame, block_trials: int = 10) -> dict:
     if len(blocks) >= 2:
         out["ASR_Habituation_pct"] = (round(100.0 * (1 - blocks[-1] / blocks[0]), 1)
                                       if blocks[0] else float("nan"))
+    out.update(level_measures(trials, threshold_sd))
     return out
 
 
@@ -486,14 +592,14 @@ def real_frame_rate(summary: dict) -> float | None:
 
 
 def asr_summary(data: TrackingData, startle_ms: float = 200.0, baseline_ms: float = 200.0,
-                block_trials: int = 10) -> tuple[dict, pd.DataFrame]:
+                block_trials: int = 10, threshold_sd: float = 2.0) -> tuple[dict, pd.DataFrame]:
     """(the Summary row, the Trials table) for one file."""
     trials = trial_table(data, startle_ms, baseline_ms)
     times = data.df["Time_s"].to_numpy(dtype=float)
     length = float(times[-1] - times[0]) if len(times) > 1 else 0.0
     values = data.df["MotionIndex_pct"].to_numpy(dtype=float)
     row: dict = {"File": data.name}
-    row.update(session_measures(trials, block_trials))
+    row.update(session_measures(trials, block_trials, threshold_sd))
     row.update({
         "Frames": data.n_frames, "Duration_s": round(length, 2),
         "FPS": round((len(times) - 1) / length, 3) if length else float("nan"),
@@ -507,6 +613,7 @@ def asr_summary(data: TrackingData, startle_ms: float = 200.0, baseline_ms: floa
         "IntensityThreshold": data.settings.get("Intensity_Threshold"),
         "StartleWindow_ms": startle_ms, "BaselineWindow_ms": baseline_ms,
         "HabituationBlock_trials": block_trials,
+        "ThresholdCriterion_SD": threshold_sd,
         "StimulusSource": data.settings.get("Stimulus_Source"),
         "Test": ASR_TEST,
     })

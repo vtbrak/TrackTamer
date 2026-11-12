@@ -81,7 +81,7 @@ from core.version import VERSION
 from core.video_setup import OBJECT_TEST, VideoSetup
 from core.asr import (ASR_TEST, asr_summary, is_motion_file, load_motion, make_asr_job,
                       real_frame_rate, trial_table)
-from core.plotting import aligned_figure, motion_figure
+from core.plotting import aligned_figure, level_figure, motion_figure
 from core.objects import (distance_px, load_scoring, object_metrics, scoring_table,
                           trial_summary)
 from core.metrics import _bin_ranges as bin_ranges
@@ -525,6 +525,14 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self.asr_block_var = tk.StringVar(value=str(c["asr_block_trials"]))
         self.asr_block_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_block_var, width=6)
         self._setting_row(self.asr_bar, 3, "Habituation block (trials)", self.asr_block_entry)
+        self.asr_sd_var = tk.StringVar(value=f"{c['asr_threshold_sd']:g}")
+        self.asr_sd_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_sd_var, width=6)
+        self._setting_row(self.asr_bar, 4, "Threshold criterion (SD)", self.asr_sd_entry)
+        Tooltip(self.asr_sd_entry, "For sessions that step through sound levels. A level "
+                "gives a response when its mean startle-window peak is above the mean of "
+                "the session's baseline-window peaks plus this many standard deviations. "
+                "The startle threshold is the lowest level from which it and every louder "
+                "level respond. Locks when you click Analyze.")
         Tooltip(self.asr_threshold_entry, "A pixel counts as movement when its brightness changes "
                 "by more than this between frames. See its effect in Set up videos…, step 3. "
                 "Locks at the first Track.")
@@ -823,6 +831,12 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self.heat_area = ttk.Frame(self.tab_heat)
         self.heat_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+        # Startle by Level tab (acoustic startle only): amplitude against
+        # sound level, for sessions that step through levels.
+        self.tab_level = ttk.Frame(self.nb)
+        self.level_area = ttk.Frame(self.tab_level)
+        self.level_area.pack(fill=tk.BOTH, expand=True)
+
         # Experiment tab: the selected file's animal and task, down the page
         # (what Export puts on the workbook's Experiment sheet).
         self.tab_experiment = ttk.Frame(self.nb)
@@ -844,6 +858,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self.review = ReviewPanel(self.nb, on_cutoff=self._save_review_cutoff,
                                   on_scored=self._on_scored,
                                   on_trial_info=self._on_trial_info)
+        self.nb.add(self.tab_level, text="Startle by Level")
         self.nb.add(self.review, text="Review")
         self.nb.add(self.tab_experiment, text="Experiment")
         self.nb.bind("<<NotebookTabChanged>>", lambda _e: self._on_tab_change())
@@ -1000,7 +1015,10 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             text=missing if p["heatmap_bg_mode"] == "reference" else "")
         # Each plot on its own: one failing never leaves another file's plot
         # on screen under this file's name.
-        for area, make in ((self.path_area, self._path_fig), (self.heat_area, self._heat_fig)):
+        plots = [(self.path_area, self._path_fig), (self.heat_area, self._heat_fig)]
+        if self.test_var.get() == ASR_TEST:
+            plots.append((self.level_area, self._level_fig))
+        for area, make in plots:
             try:
                 self._show_figure(area, make(entry, p))
             except Exception as exc:
@@ -1022,6 +1040,10 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             labels=p["path_labels"],
             zone_cm=self._zone_cm() if self.test_var.get() == OBJECT_TEST else None,
         )
+
+    def _level_fig(self, entry, p=None):
+        """Acoustic startle: amplitude against sound level."""
+        return level_figure(entry.data, entry.bins, float(self.config_data["asr_threshold_sd"]))
 
     def _heat_fig(self, entry, p):
         if self.test_var.get() == ASR_TEST:
@@ -1079,6 +1101,13 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             self.config_data["asr_block_trials"] = max(1, int(float(self.asr_block_var.get())))
         except ValueError:
             self.asr_block_var.set(str(self.config_data["asr_block_trials"]))
+        try:
+            sd = float(self.asr_sd_var.get())
+            if sd < 0:
+                raise ValueError
+            self.config_data["asr_threshold_sd"] = sd
+        except ValueError:
+            self.asr_sd_var.set(f"{self.config_data['asr_threshold_sd']:g}")
         self.config_data["repeated_warn_pct"] = self._repeat_limit()
         self.config_data["fill_gaps"] = bool(self.fill_var.get())
         try:
@@ -1421,6 +1450,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             self._fill_tree(self.bins_tree, None)
             self._clear_tab(self.path_area, note)
             self._clear_tab(self.heat_area, note)
+            self._clear_tab(self.level_area, note)
             return
         self.bins_note.set(
             f"{entry.label}: {len(entry.bins)} trial(s)" if self.test_var.get() == ASR_TEST
@@ -1460,7 +1490,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         for entry in (self.fps_entry, self.bin_entry, self.entry_entry,
                       self.gap_entry, self.adj_entry, self.smooth_entry,
                       self.fill_check, self.fill_max_entry, self.asr_startle_entry,
-                      self.asr_baseline_entry, self.asr_block_entry):
+                      self.asr_baseline_entry, self.asr_block_entry, self.asr_sd_entry):
             entry.configure(state="disabled" if locked else "normal")
         self.asr_threshold_entry.configure(
             state="disabled" if self._tracking_locked() else "normal")
@@ -1638,6 +1668,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self.nb.tab(self.tab_bins, text="Trials" if asr else "Time Bins")
         self.nb.tab(self.tab_path, text="Motion Trace" if asr else "Path")
         self.nb.tab(self.tab_heat, text="Aligned Trials" if asr else "Heatmap")
+        self.nb.tab(self.tab_level, state="normal" if asr else "hidden")
         for col, area in ((self.path_col, self.path_area), (self.heat_col, self.heat_area)):
             if asr:
                 col.pack_forget()
@@ -3104,7 +3135,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         if test == ASR_TEST:
             c = self.config_data
             summary, e.bins = asr_summary(e.data, float(c["asr_startle_ms"]),
-                                          float(c["asr_baseline_ms"]), int(c["asr_block_trials"]))
+                                          float(c["asr_baseline_ms"]), int(c["asr_block_trials"]),
+                                          float(c["asr_threshold_sd"]))
             e.summary = with_animal(order_summary(summary, test), e.info)
             return
         min_entry = self.config_data["min_entry_frames"]
@@ -3229,9 +3261,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                              **{k: plain_value(v) for k, v in sections["Analysis"].items()},
                              **{k: plain_value(v)
                                 for k, v in sections.get("Time Bins", {}).items()}},
-                "files": {"analysis": os.path.basename(out["analysis"]),
-                          "path": os.path.basename(out["path"]),
-                          "heatmap": os.path.basename(out["heatmap"])},
+                "files": {name: os.path.basename(path) for name, path in out.items()},
             }, label)
         except OSError:
             traceback.print_exc()       # the results themselves were written
@@ -3253,6 +3283,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                              "Startle window (ms)": row.get("StartleWindow_ms"),
                              "Baseline window (ms)": row.get("BaselineWindow_ms"),
                              "Habituation block (trials)": row.get("HabituationBlock_trials"),
+                             "Threshold criterion (SD)": row.get("ThresholdCriterion_SD"),
                              "Stimuli from": row.get("StimulusSource"),
                              "Pixels analyzed": row.get("AnalyzedPixels"),
                              "Frames": row.get("Frames"),
@@ -3400,7 +3431,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         if base.endswith("_MotionIndex"):
             base = base[: -len("_MotionIndex")]
         return {"analysis": base + "_analysis.xlsx", "path": base + "_trace.png",
-                "heatmap": base + "_aligned.png"}
+                "heatmap": base + "_aligned.png", "levels": base + "_levels.png"}
 
     def export(self) -> None:
         """Write each selected, analyzed file's _analysis.xlsx, _path.png, and
@@ -3468,6 +3499,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                     )
                     save_figure(self._path_fig(e, plot), out["path"])
                     save_figure(self._heat_fig(e, plot), out["heatmap"])
+                    if startle:
+                        save_figure(self._level_fig(e), out["levels"])
                     written.append(e)
                     workbooks.append(out["analysis"])
                     self._record_export(e, sections, out)
@@ -3511,7 +3544,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 self, "Export finished",
                 f"Exported {len(written)} file(s), each next to its own file.\n\n"
                 + ("Each has an _analysis.xlsx workbook (Experiment, Summary, Trials, "
-                   "Settings and Setup sheets) plus _trace.png and _aligned.png images.\n\n"
+                   "Settings and Setup sheets) plus _trace.png, _aligned.png and "
+                   "_levels.png images.\n\n"
                    if self.test_var.get() == ASR_TEST else
                    "Each has an _analysis.xlsx workbook (Experiment, Summary, Time "
                    "Bins, Settings and Setup sheets) plus _path.png and _heatmap.png "

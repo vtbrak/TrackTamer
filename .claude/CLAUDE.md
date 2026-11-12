@@ -275,6 +275,13 @@ apps' pieces over time (an "Apps" section per app).
   columns) and no per-trial `_info.csv`.
 - **Puzzle Box** and conditioned place preference are **after 1.0** (user,
   2026-11-11; Puzzle Box's measures are decided, ROADMAP "Build order").
+**Startle by sound level is built** (2026-11-11; ROADMAP §13): for sessions
+whose pulse-alone trials step through levels, the mean per level, a startle
+threshold (lowest level from which it and every louder one beat the
+baseline windows + `asr_threshold_sd` SD) and the largest response, per
+sound when there are several, and the Startle by Level plot
+(`_levels.png`). **Habituation is waiting on more calculations from the
+user; don't change it until they send them.**
 **Acoustic startle (ROADMAP §13) is built** (2026-11-09, on `main`, not released;
 the target for 1.0): test type "Acoustic Startle Response", `core/asr.py`, setup steps
 Threshold and Stimuli, `<name>_MotionIndex.csv`. Waiting on real chamber videos to

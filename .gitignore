@@ -13,6 +13,7 @@ config.json
 *_heatmap.png
 *_trace.png
 *_aligned.png
+*_levels.png
 
 # The videos' info files (animal and trial details from the recording apps,
 # plus Track Tamer's saved setup): research data, kept off GitHub
