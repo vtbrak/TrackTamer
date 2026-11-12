@@ -254,6 +254,7 @@ def run_asr_job(job: AsrJob, progress=None, should_cancel=None):
     info_path, text = info_file.prepare(job.path, {
         **(job.record or {}), "version": VERSION,
         "saved": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "setup_changed_since_tracking": False,
         "tracking": constants,
         "files": {"tracking": os.path.basename(path)}}, job.label)
     # Both are written whole before either earlier file is replaced.

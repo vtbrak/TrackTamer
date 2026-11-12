@@ -126,6 +126,10 @@ try:
     check("problems: newer standard, short recording, app error, frame counts, frame rate",
           all(x in said for x in ("newer version", "shorter than the session", "Encoder stopped",
                                   "wrote 500 frames but counted 480", "9.84 fps")))
+    check("a frame size that isn't the video's is reported; the right one isn't",
+          "800 x 600 px, the video's are 640 x 480"
+          in " ".join(TrialInfo({}, {"width_px": 800, "height_px": 600}).problems(video_size=(640, 480)))
+          and TrialInfo({}, {"width_px": 800, "height_px": 600}).problems(video_size=(800, 600)) == [])
     check("the video's own frame count is checked when the app didn't verify it",
           "the video has 480" in " ".join(TrialInfo({}, {"frames": 500}).problems(video_frames=480)))
 
@@ -229,6 +233,56 @@ try:
           == [("day", "3", "2"), ("phase", "Training", "Test")])
     apply_choice(obj, s, "day"); apply_choice(obj, s, "phase")
     check("and can be taken from the info file", (s.trial_day, s.trial_phase) == ("2", "Test"))
+
+    # A draft setup from the last video tracked in the same arena.
+    from core.info import arena_draft
+    rig = os.path.join(tmp, "rig")
+    def trial(day, stamp, arena, label, saved_at, size=(800, 600), crop=(10.0, 20.0, 300.0, 400.0)):
+        folder = os.path.join(rig, day); os.makedirs(folder, exist_ok=True)
+        name = f"{stamp}_{arena}_{label}.mp4"
+        camera = {"label": label, "video": name}
+        if saved_at:
+            camera["track_tamer"] = {"saved": saved_at, "setup": {
+                "frame_size": list(size), "start_frame": 40, "length_s": 77.0, "crop": list(crop),
+                "regions": {"center": {"xs": [1.0, 2.0, 3.0], "ys": [4.0, 5.0, 6.0]}},
+                "exclusions": [{"xs": [7.0, 8.0, 9.0], "ys": [1.0, 2.0, 3.0]}],
+                "scale_points": [[0.0, 0.0], [100.0, 0.0]], "scale_cm": 40.0,
+                "object_kinds": {"object 1": "Novel"}, "trial_day": "9"}}
+        with open(os.path.join(folder, f"{stamp}_{arena}_info.json"), "w") as f:
+            json.dump({"schema_version": 1, "assay": "Open Field", "arena": arena,
+                       "animal_id": "M1", "cameras": [camera]}, f)
+        return os.path.join(folder, name)
+    trial("2026-11-10", "2026-11-10_09-00-00", "OF2", "Overhead", "2026-11-10 10:00:00")
+    trial("2026-11-11", "2026-11-11_09-00-00", "OF2", "Overhead", "2026-11-11 10:00:00",
+          crop=(11.0, 22.0, 333.0, 444.0))
+    trial("2026-11-11", "2026-11-11_09-30-00", "OF1", "Overhead", "2026-11-11 11:00:00")
+    trial("2026-11-11", "2026-11-11_10-00-00", "OF2", "Side", "2026-11-11 12:00:00")
+    trial("2026-11-11", "2026-11-11_10-30-00", "OF2", "Overhead", "2026-11-11 13:00:00",
+          size=(640, 480))
+    new_video = trial("2026-11-12", "2026-11-12_09-00-00", "OF2", "Overhead", None)
+    new_info = find_info(new_video)
+    got = arena_draft(new_info, new_video, (800, 600))
+    check("the draft is the most recently saved setup for the same arena, camera and frame size, "
+          "from the day folders beside the video's",
+          got is not None and got[0]["crop"] == [11.0, 22.0, 333.0, 444.0]
+          and got[1] == "2026-11-11_09-00-00_OF2_Overhead.mp4")
+    check("no draft for an arena or frame size nothing was saved for",
+          arena_draft(TrialInfo({"arena": "OF9"}, {"label": "Overhead"}), new_video, (800, 600)) is None
+          and arena_draft(new_info, new_video, (1280, 720)) is None
+          and arena_draft(TrialInfo({}, {}), new_video, (800, 600)) is None)
+    fresh = VideoSetup(path=new_video, info=VideoInfo(new_video, 6000, 20.0, 800, 600),
+                       length_s=300.0, length_default="Open Field")
+    took = fresh.draft_from(got[0])
+    check("a draft brings the crop, shapes, regions and scale, and ticks nothing",
+          took and fresh.crop == (11.0, 22.0, 333.0, 444.0) and list(fresh.regions) == ["center"]
+          and len(fresh.exclusions) == 1 and fresh.scale_cm == 40.0
+          and fresh.scale_points == [(0.0, 0.0), (100.0, 0.0)] and fresh.steps_done == set())
+    check("the session, object types and trial details stay this video's own",
+          (fresh.start, fresh.length_s, fresh.length_default) == (0, 300.0, "Open Field")
+          and fresh.object_kinds == {} and fresh.trial_day == "")
+    other_size = VideoSetup(path="v.mp4", info=VideoInfo("v.mp4", 6000, 20.0, 640, 480))
+    check("nothing is taken from a setup drawn on another frame size",
+          not other_size.draft_from(got[0]) and other_size.crop is None and not other_size.regions)
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 

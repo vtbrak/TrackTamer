@@ -29,7 +29,8 @@ from .loader import TrackingData, load_csv
 from .tracking import (Region, Scale, TrackingParams, assemble_output, make_reference,
                        save_outputs, track_video)
 from .video import Prep
-from .asr import ASR_TEST, MOTION_SUFFIX, AsrJob, run_asr_job
+from . import info_file
+from .asr import ASR_TEST, MOTION_SUFFIX, AsrJob, repeated_frames, run_asr_job
 from .objects import objects_to_text
 from .video_setup import OBJECT_TEST, VideoSetup
 
@@ -89,6 +90,28 @@ def object_settings(setup: VideoSetup, dsmpl: float) -> dict:
             "Trial_Day": setup.trial_day, "Trial_Phase": setup.trial_phase}
 
 
+def recorded_repeats(video_path: str, label: str | None = None) -> set | None:
+    """The video frames its recording app repeated (from 0), from the frame
+    times file its info file names, with the info file's own list as well.
+    None if the recording app says nothing about repeats for this video
+    (no info file, or one without either), so no column is written."""
+    found = info_file.find(video_path)
+    if found is None:
+        return None
+    _, raw, camera, renamed = found
+    if renamed:         # a renamed video: only the entry the user confirmed
+        camera = next((c for c in info_file.cameras(raw)
+                       if label and c.get("label") == label), None)
+    if not camera or not ({"timestamps_csv", "repeated_frame_indices", "repeated_frames"}
+                          & set(camera)):
+        return None
+    frames = set(repeated_frames(video_path, camera))
+    listed = camera.get("repeated_frame_indices")
+    if isinstance(listed, list):
+        frames |= {int(f) for f in listed if isinstance(f, (int, float))}
+    return frames
+
+
 def run_job(job: TrackJob, progress=None, should_cancel=None,
             on_reference=None) -> tuple[TrackingData, str] | None:
     """Track one video and save `<name>_LocationOutput.csv` and
@@ -112,7 +135,8 @@ def run_job(job: TrackJob, progress=None, should_cancel=None,
         raise ValueError("No frames could be tracked between the start and the end.")
     out = assemble_output(job.path, result.df, job.params, job.prep, job.start,
                           job.regions, job.shape, job.scale, job.reference_frames,
-                          job.exclusion_count, job.fps, extra=job.extra)
+                          job.exclusion_count, job.fps, extra=job.extra,
+                          repeated=recorded_repeats(job.path, job.label))
     paths = save_outputs(job.path, out, reference, job.record, job.label)
     data = load_csv(paths["csv"])
     data.missing_at_end = result.missing_at_end     # for the finished message

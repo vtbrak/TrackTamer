@@ -93,8 +93,8 @@ from region_dialog import RegionDialog
 from setup_window import SetupWindow, use_default_length
 from review_panel import ReviewPanel
 from core import info_file
-from core.info import (TrialInfo, apply_choice, differences, fill_blanks, find_info,
-                       info_for_output, with_animal)
+from core.info import (TrialInfo, apply_choice, arena_draft, differences, fill_blanks,
+                       find_info, info_for_output, with_animal)
 from dialogs import (ask_choice, ask_side_by_side, ask_yes_no, show_error, show_info,
                      show_warning)
 from tooltip import Tooltip
@@ -456,6 +456,15 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self.bin_var = tk.StringVar(value=f"{self.config_data['bin_seconds']:g}")
         self.bin_entry = ttk.Entry(self.session_section, textvariable=self.bin_var, width=6)
         self._setting_row(self.session_section, 2, "Bin size (s)", self.bin_entry)
+        # Warning limit for repeated frames (never locks: it changes no result).
+        self.repeat_var = tk.StringVar(value=f"{self.config_data['repeated_warn_pct']:g}")
+        self.repeat_entry = ttk.Entry(self.session_section, textvariable=self.repeat_var,
+                                      width=6)
+        self._setting_row(self.session_section, 3, "Warn at repeated frames (%)",
+                          self.repeat_entry)
+        Tooltip(self.repeat_entry, "After Analyze, a session is flagged when more than "
+                "this percent of its frames are ones the recording app repeated because "
+                "the camera was late. It changes no result, so it never locks.")
 
         # Entries and regions.
         self.entries_section = ttk.LabelFrame(panel, text="Entries and regions", padding=6)
@@ -813,12 +822,21 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self.heat_area = ttk.Frame(self.tab_heat)
         self.heat_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+        # Experiment tab: the selected file's animal and task, down the page
+        # (what Export puts on the workbook's Experiment sheet).
+        self.tab_experiment = ttk.Frame(self.nb)
+        self.experiment_note = tk.StringVar()
+        ttk.Label(self.tab_experiment, textvariable=self.experiment_note,
+                  padding=(4, 6)).pack(side=tk.TOP, anchor=tk.W)
+        self.experiment_tree = self._make_tree(self.tab_experiment)
+
         # Review tab: the selected file's video with its tracking drawn on, and
         # the moments to check (outside the regions; long ones flagged).
         self.review = ReviewPanel(self.nb, on_cutoff=self._save_review_cutoff,
                                   on_scored=self._on_scored,
                                   on_trial_info=self._on_trial_info)
         self.nb.add(self.review, text="Review")
+        self.nb.add(self.tab_experiment, text="Experiment")
         self.nb.bind("<<NotebookTabChanged>>", lambda _e: self._on_tab_change())
 
     def _make_tree(self, parent) -> ttk.Treeview:
@@ -1052,6 +1070,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             self.config_data["asr_block_trials"] = max(1, int(float(self.asr_block_var.get())))
         except ValueError:
             self.asr_block_var.set(str(self.config_data["asr_block_trials"]))
+        self.config_data["repeated_warn_pct"] = self._repeat_limit()
         self.config_data["fill_gaps"] = bool(self.fill_var.get())
         try:
             self.config_data["fill_gaps_max_frames"] = max(1, int(float(self.fill_max_var.get())))
@@ -1375,9 +1394,11 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 "the file and open the Review tab to see each one in the video.")
 
     def _show_selected(self) -> None:
-        """Point Time Bins, Path, Heatmap, and Review at the selected file."""
+        """Point Time Bins, Path, Heatmap, Review and Experiment at the
+        selected file."""
         self._show_review()
         entry = self._selected_entry()
+        self._show_experiment(entry)
         if entry is None:
             note = ("Add files, then select one in the file list." if not self.files
                     else "Select a file in the file list.")
@@ -1397,6 +1418,22 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             else f"{entry.label}: {self._bin_seconds_locked():g} s bins")
         self._fill_tree(self.bins_tree, entry.bins)
         self._redraw_plots()
+
+    def _show_experiment(self, entry) -> None:
+        """The Experiment tab: the selected file's animal and task, as its
+        recording app saved them. It doesn't wait for Analyze."""
+        if entry is None:
+            self.experiment_note.set("Add files, then select one in the file list."
+                                     if not self.files else "Select a file in the file list.")
+            self._fill_tree(self.experiment_tree, None)
+            return
+        recorded = entry.info is not None and entry.info.recorded
+        self.experiment_note.set(
+            f"{entry.label}: from {os.path.basename(entry.info.path)}" if recorded
+            else f"{entry.label}: no recording app's info file was found with this file, "
+                 "so the animal and task are blank.")
+        self._fill_tree(self.experiment_tree,
+                        settings_table(self._experiment_sections(entry), "Field"))
 
     # -------------------------------------------------------------- locking
     def _locked(self) -> bool:
@@ -1595,7 +1632,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 col.pack_forget()
             elif not col.winfo_manager():
                 col.pack(side=tk.RIGHT, fill=tk.Y, before=area)
-        for row in (1, 2):      # frame rate and bin size don't apply to startle
+        for row in (1, 2, 3):   # frame rate, bin size and this limit don't apply to startle
             for widget in self.session_section.grid_slaves(row=row):
                 widget.grid_remove() if asr else widget.grid()
 
@@ -1643,6 +1680,17 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         except ValueError:
             pass
         return float(self.config_data["object_zone_cm"])
+
+    def _repeat_limit(self) -> float:
+        """The repeated-frames warning limit typed, in percent (the saved one
+        if the box isn't a number from 0 to 100)."""
+        try:
+            v = float(self.repeat_var.get())
+            if 0 <= v <= 100:
+                return v
+        except ValueError:
+            pass
+        return float(self.config_data["repeated_warn_pct"])
 
     def _on_asr_threshold(self) -> None:
         """Save a valid intensity threshold."""
@@ -2001,14 +2049,9 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             return False, None
         files = saved.get("files") if isinstance(saved.get("files"), dict) else {}
         folder = os.path.dirname(setup.path)
-        try:
-            raw = np.fromfile(os.path.join(folder, str(files.get("reference", ""))),
-                              dtype=np.uint8)
-            image = cv2.imdecode(raw, cv2.IMREAD_GRAYSCALE) if raw.size else None
-            setup.use_reference(image, float(self.config_data["video_downsample"]),
-                                int(self.config_data["reference_frames"]))
-        except (OSError, ValueError, cv2.error):
-            pass        # no reference image: that step is done again
+        if not saved.get("setup_changed_since_tracking"):
+            # (a setup changed since then needs a new reference image)
+            self._load_saved_reference(setup, files)
         data = None
         tracking = os.path.join(folder, str(files.get("tracking", "")))
         if files.get("tracking") and os.path.isfile(tracking):
@@ -2017,6 +2060,52 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             except Exception:
                 traceback.print_exc()   # an unreadable tracking file: track again
         return True, data
+
+    def _load_saved_reference(self, setup, files) -> bool:
+        """Take the reference image saved beside a video as its setup's, if
+        it fits the current downsampling. Without one, that step is done
+        again in setup (or Track makes a new reference)."""
+        name = files.get("reference") if isinstance(files, dict) else None
+        if not name:
+            return False
+        try:
+            raw = np.fromfile(os.path.join(os.path.dirname(setup.path), str(name)),
+                              dtype=np.uint8)
+            image = cv2.imdecode(raw, cv2.IMREAD_GRAYSCALE) if raw.size else None
+            return setup.use_reference(image, float(self.config_data["video_downsample"]),
+                                       int(self.config_data["reference_frames"]))
+        except (OSError, ValueError, cv2.error):
+            return False
+
+    def _save_setup(self, e) -> None:
+        """Save a video's setup to its info file when the setup window closes
+        or moves to another video (user, 2026-11-11), so nothing drawn is
+        lost if Track Tamer closes before the video is tracked. Nothing is
+        written for a video that hasn't been touched, or whose setup is
+        already what the file has. A video that has been tracked is marked
+        as changed since, so it isn't taken for the setup it was tracked
+        with. A save that fails is left for Track (the setup is still here)."""
+        v = e.video
+        if v is None or not (v.steps_done or v.has_drawn_work()):
+            return
+        setup = v.to_saved()
+        saved = e.info.saved if e.info is not None else {}
+        if saved.get("setup") == setup:
+            return
+        update = {"test": self.test_var.get(), "setup": setup, "version": VERSION}
+        if e.data is not None or (isinstance(saved.get("files"), dict)
+                                  and saved["files"].get("tracking")):
+            update["setup_changed_since_tracking"] = True
+        label = e.info.camera.get("label") if e.info is not None and e.info.renamed else None
+        try:
+            info_file.write(v.path, update, label)
+        except OSError:
+            traceback.print_exc()
+            return
+        if e.info is None:      # the file Track Tamer just made for this video
+            e.info = find_info(e.path)
+        else:
+            self._reread_info(e)
 
     def _reread_info(self, e) -> None:
         """Read a video's info file again after Track Tamer added to it."""
@@ -2057,6 +2146,10 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 if d.what != "test":
                     rows.setdefault((d.what, d.label, d.setup_value, d.info_value),
                                     []).append(e)
+        rate = self._info_rate(have)
+        if rate is not None:        # first row: it's the whole load's setting
+            rows = {("fps", "Frame rate", f"{self.fps_var.get()} fps",
+                     f"{rate[0]:g} fps (measured)"): rate[1], **rows}
         if rows:
             keys = list(rows)
             picked = ask_side_by_side(
@@ -2069,17 +2162,23 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                  for k in keys for _, label, left, right in (k,)],
                 "Track Tamer", "Info file")
             for key, side in zip(keys, picked or []):
-                if side == "right":
-                    for e in rows[key]:
-                        apply_choice(e.info, e.video, key[0])
-        self._note_saved_tracking(have)
+                if side != "right":
+                    continue
+                if key[0] == "fps":
+                    self.fps_var.set(f"{rate[0]:g}")
+                    self.config_data["fps"] = rate[0]
+                    continue
+                for e in rows[key]:
+                    apply_choice(e.info, e.video, key[0])
+        self._use_saved_tracking(have)
         found = []
         for e in have:
             v = e.video
             said = e.info.problems(
                 video_frames=v.info.frame_count if v is not None else None,
                 video_fps=v.info.fps if v is not None else None,
-                session_s=v.length_s if v is not None and test != ASR_TEST else None)
+                session_s=v.length_s if v is not None and test != ASR_TEST else None,
+                video_size=(v.info.width, v.info.height) if v is not None else None)
             found += [f"• {e.label}: {text}" for text in said]
         if found:
             show_warning(self, "The info files report problems",
@@ -2090,38 +2189,134 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         if win is not None and win.winfo_exists():
             win._show_video()       # lengths and trial details may have changed
 
-    def _note_saved_tracking(self, entries) -> None:
-        """Videos that come back already tracked keep the tracking they have;
-        say so when it was done with other settings than the current ones,
-        since tracking them again would use the current ones."""
+    @staticmethod
+    def _video_rate(e) -> float:
+        """A video's frame rate: the rate its recording app measured, when
+        the info file has one, else the rate the video file states."""
+        measured = e.info.fps_measured if e.info is not None else None
+        return float(measured or e.video.info.fps or 0)
+
+    def _info_rate(self, have):
+        """(rate, videos) when the new videos' info files give one measured
+        frame rate and it isn't the Frame rate setting; None otherwise (also
+        when the setting is locked, for startle, which uses each frame's own
+        time, and when the videos differ: Track asks about that)."""
+        if self._locked() or self.test_var.get() == ASR_TEST:
+            return None
+        rates: dict[float, list] = {}
+        for e in have:
+            if e.video is not None and not e.restored and e.info.fps_measured:
+                rates.setdefault(round(e.info.fps_measured, 2), []).append(e)
+        if len(rates) != 1:
+            return None
+        rate, videos = next(iter(rates.items()))
+        try:
+            setting = float(self.fps_var.get())
+        except ValueError:
+            setting = None
+        if setting is not None and abs(rate - setting) <= 0.005 * rate:
+            return None
+        return rate, videos
+
+    def _arena_draft(self, entry):
+        """(saved setup, video name) to start a video's setup from: the last
+        video set up in the same arena with the same camera, in the list
+        (nearest above first) or, failing that, among the info files beside
+        it. None if there's none, or the video has no info file naming an
+        arena."""
+        info, v = entry.info, entry.video
+        if info is None or v is None or not info.arena:
+            return None
+        label = info.camera.get("label")
+        above = self.files[:self.files.index(entry)] if entry in self.files else []
+        for other in reversed(above):
+            o = other.video
+            if (o is not None and other.info is not None and other.info.arena == info.arena
+                    and other.info.camera.get("label") == label and o.same_size(v)
+                    and o.has_drawn_work()):
+                return o.to_saved(), other.label
+        return arena_draft(info, v.path, (v.info.width, v.info.height))
+
+    TRACKING_KEYS = (("Method", "track_method"), ("Location_Thresh", "loc_thresh"),
+                     ("Use_Window", "use_window"), ("Window_Size", "window_size"),
+                     ("Window_Weight", "window_weight"), ("Downsample", "video_downsample"),
+                     ("Reference_Frames", "reference_frames"))
+
+    @staticmethod
+    def _tracking_text(t: tuple) -> str:
+        method, thresh, window, size, weight, dsmpl, frames = t
+        return (f"animal is {method}, threshold {thresh:g}%, "
+                + (f"window {size:g} px at weight {weight:g}" if window else "no window")
+                + f", downsampling {dsmpl:g}, {frames:g} reference frames")
+
+    def _saved_tracking(self, e) -> tuple | None:
+        """The tracking settings a tracked video's file records, in the order
+        of TRACKING_KEYS; None if it doesn't record them all."""
+        was = e.data.settings
+        try:
+            return (str(was["Method"]), float(was["Location_Thresh"]),
+                    str(was["Use_Window"]).strip().lower() == "true",
+                    float(was["Window_Size"]), float(was["Window_Weight"]),
+                    float(was["Downsample"]), float(was["Reference_Frames"]))
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def _use_saved_tracking(self, entries) -> None:
+        """Videos that come back already tracked keep the tracking they have.
+        When it was done with other tracking settings than the current ones,
+        both are shown side by side and the experimenter ticks which to use
+        from here on (user, 2026-11-11), so tracking again can match the
+        first time. That's only offered while no other video in the list has
+        been tracked (the settings are one set for a load) and the videos
+        agree with each other; otherwise a notice says so. Also says when a
+        video's setup was changed after it was tracked."""
         c = self.config_data
-        now = {"Method": c["track_method"], "Location_Thresh": float(c["loc_thresh"]),
-               "Use_Window": str(bool(c["use_window"])), "Window_Size": float(c["window_size"]),
-               "Window_Weight": float(c["window_weight"]),
-               "Downsample": float(c["video_downsample"]),
-               "Reference_Frames": float(c["reference_frames"])}
-        other = []
-        for e in entries:
-            if not (e.restored and e.data is not None) or is_motion_file(e.data.path):
-                continue
-            was = e.data.settings
-            for key, value in now.items():
-                if key not in was:
-                    continue
-                try:
-                    same = (str(was[key]) == value if isinstance(value, str)
-                            else abs(float(was[key]) - value) < 1e-9)
-                except (TypeError, ValueError):
-                    same = False
-                if not same:
-                    other.append(e)
-                    break
-        if other:
-            show_info(self, "Tracked with other settings",
-                      "Some videos were tracked with other tracking settings than the "
-                      f"current ones.\n\n{self._names(other)}\n\nTheir tracking is kept as "
-                      "it is, and their Settings sheet shows what was used. Tracking them "
-                      "again would use the current settings.")
+        now = (str(c["track_method"]), float(c["loc_thresh"]), bool(c["use_window"]),
+               float(c["window_size"]), float(c["window_weight"]),
+               float(c["video_downsample"]), float(c["reference_frames"]))
+        back = [e for e in entries if e.restored and e.data is not None
+                and not is_motion_file(e.data.path)]
+        changed = [e for e in back if e.info.saved.get("setup_changed_since_tracking")]
+        if changed:
+            show_info(self, "Set up again since tracking",
+                      "Some videos' setup was changed after they were tracked.\n\n"
+                      f"{self._names(changed)}\n\nTheir tracking file is from the earlier "
+                      "setup. Track them again to use the setup as it is now.")
+        groups: dict[tuple, list] = {}
+        for e in back:
+            saved = self._saved_tracking(e)
+            if saved is not None and saved != now:
+                groups.setdefault(saved, []).append(e)
+        if not groups:
+            return
+        others = self._runner is not None or any(
+            e.video is not None and e.data is not None and e not in entries for e in self.files)
+        picked = None
+        if len(groups) == 1 and not others:
+            saved, videos = next(iter(groups.items()))
+            picked = ask_side_by_side(
+                self, "Which tracking settings?",
+                "These videos were tracked with other tracking settings than the current "
+                "ones. Tick the ones to use from here on. Their tracking is kept either "
+                "way; tracking them again, or tracking other videos in this list, uses "
+                "the ones you tick.",
+                [("Tracking settings", self._who(videos), self._tracking_text(now),
+                  self._tracking_text(saved))], "Current", "Saved with the video")
+            if picked == ["right"]:
+                c.update(track_method=saved[0], loc_thresh=saved[1], use_window=saved[2],
+                         window_size=int(saved[3]), window_weight=saved[4],
+                         video_downsample=saved[5], reference_frames=int(saved[6]))
+                self._save_config_quietly()
+                for e in back:      # their reference images fit these settings
+                    self._load_saved_reference(e.video, e.info.saved.get("files"))
+            return
+        show_info(self, "Tracked with other settings",
+                  "Some videos were tracked with other tracking settings than the "
+                  f"current ones.\n\n{self._names([e for g in groups.values() for e in g])}"
+                  "\n\nTheir tracking is kept as it is, and their Settings sheet shows "
+                  "what was used. Tracking them again would use the current settings."
+                  + (" (They can't be switched to here: other videos in the list are "
+                     "already tracked.)" if others else ""))
 
     @staticmethod
     def _who(entries) -> str:
@@ -2177,6 +2372,13 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         if picked == ["right"]:
             self.test_var.set(wanted)
             self._on_test_type()
+            return
+        # Kept as another test than the one a video was set up as: its
+        # regions (or objects) were drawn for that test, so that step is
+        # looked at again.
+        for e in groups[wanted]:
+            if e.restored and e.video is not None:
+                e.video.steps_done.discard("regions")
 
     def clear_files(self) -> None:
         """Empty the list and unlock the per-load settings."""
@@ -2364,6 +2566,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             known = g[0].info
             if known is not None and known.renamed:     # a renamed video's entry
                 job.label = known.camera.get("label")
+            if test != ASR_TEST:        # the rate the recording app measured, if any
+                job.fps = self._video_rate(g[0]) or job.fps
         for g in ready:
             for e in g:
                 e.track_state, e.track_pct, e.track_error = "queued", 0, ""
@@ -2386,7 +2590,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         """Fill the frame-rate setting from the videos, or warn when they
         disagree with it or with each other. False if the user cancels."""
         if self.test_var.get() == ASR_TEST:
-            other = [e for e in entries if abs((e.video.info.fps or 0) - 30) > 1]
+            other = [e for e in entries if abs((e.video.info.fps or 0) - 30) > 1]  # the file's own
             return not other or ask_yes_no(
                 self, "Some videos aren't 30 fps",
                 f"Some videos aren't 30 fps.\n\n{self._names(other)}\n\nThe motion index "
@@ -2396,8 +2600,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         tracked = [e for e in self.files if e.video is not None and e.data is not None]
         rates = {}
         for e in entries + tracked:
-            if e.video.info.fps:
-                rates.setdefault(round(e.video.info.fps, 2), []).append(e)
+            if self._video_rate(e):
+                rates.setdefault(round(self._video_rate(e), 2), []).append(e)
         if not rates:
             return True
         locked = self._locked()
@@ -2700,6 +2904,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         of the frame before. The camera ran slower than the video's frame
         rate, so there are few real frames around each stimulus."""
         if self.test_var.get() != ASR_TEST:
+            self._warn_repeats_location(entries)
             return
         window = float(self.config_data["asr_startle_ms"])
         found = []
@@ -2725,6 +2930,33 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 "out low, and reaction times are only as fine as the gap between "
                 "real frames. Boom Box on a Mac recorded this way at 1280x720 before "
                 "version 1.3.4.")
+
+    def _warn_repeats_location(self, entries) -> None:
+        """After Analyze (plus maze, open field, objects): flag sessions where
+        more than a set share of the frames are ones the recording app
+        repeated because the camera was late (config `repeated_warn_pct`)."""
+        limit = self.config_data["repeated_warn_pct"] = self._repeat_limit()
+        found = []
+        for e in entries:
+            frames = (e.summary or {}).get("Frames") or 0
+            copies = (e.summary or {}).get("RepeatedFrames") or 0
+            if frames and e.data is not None and "Frame_Repeated" in e.data.df.columns \
+                    and 100 * copies / frames > limit:
+                found.append(f"• {e.label}: {copies:,} of {frames:,} frames "
+                             f"({100 * copies / frames:.1f}%) are repeats")
+        if found:
+            show_warning(
+                self, "Many frames are repeats",
+                "Some sessions have many repeated frames. The camera fell behind the "
+                "recording's frame rate, and the recording app filled in with copies "
+                "of the frame before.\n\n" + "\n".join(found[:10])
+                + ("\n…" if len(found) > 10 else "")
+                + f"\n\nThis is flagged above {limit:g}% of a session. Times and "
+                "distances are still right, and speed is worked out across each "
+                "repeat. At a repeat the position shown is where the animal was a "
+                "frame earlier, so with many of them entries and crossings are timed "
+                "a little less finely. Check the camera's exposure and frame rate "
+                "before recording more.")
 
     def _reanalyze(self, entries) -> list[str]:
         """Analyze each entry. One that fails is left without results and
@@ -2850,8 +3082,11 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         and the task as the recording app saved them (the same rows for every
         file, blank where nothing was recorded)."""
         recorded = e.info if e.info is not None and e.info.recorded else TrialInfo({})
-        return {"File": {"Video": e.data.name, "Test": e.summary.get("Test", self.test_var.get()),
-                         "Tracking file": os.path.basename(e.data.path)},
+        test = (e.summary or {}).get("Test", self.test_var.get())
+        return {"File": {"Video": e.data.name if e.data is not None else os.path.basename(e.path),
+                         "Test": test,
+                         "Tracking file": (os.path.basename(e.data.path)
+                                           if e.data is not None else "")},
                 **recorded.experiment_sections()}
 
     def _record_export(self, e, sections: dict, out: dict) -> None:
@@ -2995,6 +3230,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         unreadable = int(entry.data.unreadable.sum())
         tracking["Frames in the file"] = entry.data.n_frames
         tracking["Unreadable video frames"] = unreadable
+        if "Frame_Repeated" in entry.data.df.columns:
+            tracking["Repeated video frames"] = int(entry.data.repeated.sum())
         sections = {"Tracking (recorded in the file)": tracking}
 
         v = entry.video

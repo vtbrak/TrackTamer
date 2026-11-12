@@ -1667,10 +1667,51 @@ user the same day:
     the file in the on-screen Summary from the moment it's added.
   - Tests: `test_info.py`, `test_info_gui.py`, and checks in
     `regress_gui.py`, `test_saving.py`, `test_asr_gui.py`.
-  **Still to build:** marking repeated frames in location tracking, drafts
-  from the same arena's last video, an on-screen Experiment page, the PC
-  checklist.
-- Two parts of the plan have nothing to read yet: **disturbances** (no
+  - **Added the same day (user: "build all of the not built items"):**
+    a draft setup from the last video set up in the same arena with the
+    same camera and frame size (`info.arena_draft`, `VideoSetup.draft_from`,
+    `gui._arena_draft`: the list first, then the info files in the video's
+    folder and the day folders beside it; applied once when setup opens on
+    a video with nothing drawn, no step ticked); the info file's measured
+    frame rate shown beside the Frame rate setting when they differ
+    (`gui._info_rate`), and used by Track's frame-rate check and recorded
+    as the tracking file's frame rate (`gui._video_rate`); a frame size in
+    the info file that isn't the video's is reported; an **Experiment** tab
+    on screen (the selected file's animal and task, before Analyze too).
+  - **Four more decisions, built the same day:**
+    - **Repeated frames in plus maze, open field and object videos: mark,
+      fix speed, warn** (user, after the process was explained: the
+      recording apps write the frame before again when the camera misses a
+      tick, so the video keeps true time). Tracking writes a per-frame
+      `Frame_Repeated` column from the info file's frame times file and
+      its own list (`track_run.recorded_repeats`; no column when the
+      recording app says nothing). The Summary counts them
+      (`RepeatedFrames`). Speed is worked out across each repeat
+      (`metrics.spread_repeats`: zero-then-double becomes the true speed;
+      totals unchanged), for Open Field crossing speed and the Path's
+      color by speed. After Analyze, a session with more than
+      `repeated_warn_pct` of its frames repeated is flagged (5% to begin
+      with; the "Warn at repeated frames (%)" box in the Session settings,
+      which never locks since it changes no result).
+      `tests/test_repeats.py`.
+    - **A video tracked with other tracking settings than the current
+      ones: both shown side by side** (`gui._use_saved_tracking`); ticking
+      the saved ones sets them. Only while no other video in the list has
+      been tracked and the returning videos agree; else a notice.
+    - **The setup is saved when the setup window closes or moves to
+      another video, as well as at Track** (`gui._save_setup`), with the
+      steps that were done, so a part-finished setup comes back as it was.
+      A video already tracked is marked `setup_changed_since_tracking`,
+      and says so when added again (its reference image isn't reused).
+    - **A test Track Tamer doesn't analyze: added with a notice, as it
+      was.**
+  **Still to build:** the PC checklist.
+  **Dropped (user, 2026-11-11):** disturbances marked during recording
+  (anything unusual goes in Notes), and draft object circles from a
+  calibrated rig (the same-arena draft brings the last video's circles, and
+  that's enough).
+- (Dropped later the same day, see the end of this list.) Two parts of the
+  plan had nothing to read: **disturbances** (no
   field in schema 1, and no app records them) and **draft circles from a
   calibrated rig** (no calibration fields). They wait for the standard.
   Draft crop, scale and regions come from that arena's last video
@@ -1847,11 +1888,10 @@ until the user asks; when they ask what's next, work from the top:
 3. **Acoustic startle (ASR)** (§13): the target for the 1.0 release (user,
    2026-11-09). **Built 2026-11-09 on `main`, not released**; checking on real
    chamber videos is still to come.
-4. **Puzzle Box** and **reading the capture apps' info files** (§16): moved
-   up by the user on 2026-11-11 ("in main lets work on the puzzle box and
-   the capture app into files. CPP can wait until after 1.0"; "into files"
-   read as the info files), on `main`, before 1.0. Puzzle Box needs its measures decided and an example video
-   first; the info files' open questions (§16) need the user's answers.
+4. **Reading the capture apps' info files** (§16): moved up by the user on
+   2026-11-11 ("in main lets work on the puzzle box and the capture app
+   into files. CPP can wait until after 1.0"; "into files" read as the info
+   files), on `main`, before 1.0. Built the same day (§16).
 5. **Load a video together with an existing tracking file** (entry below).
 6. **Head and tail tracking** (requested 2026-11-09; on the `head-tail`
    branch, §17 there).
@@ -1859,9 +1899,24 @@ until the user asks; when they ask what's next, work from the top:
 
 After 1.0 (user, 2026-11-11): **conditioned place preference** (only its
 assay name is reserved so far, `docs/metadata_standard.md`; needs its specs
-decided). Not ranked: the standalone app (on hold).
+decided), and **Puzzle Box** (moved up, then back the same day: "move
+puzzle box to after 1.0. it isn't currently being run so can wait"; its
+measures are decided, below), and **a results database** (user,
+2026-11-11: "keep a database of results that would allow an inquiry to find
+representative data to generate heatmaps, paths or other images from").
+Nothing is specified yet. As a starting point when it's taken up: each
+video's info file already holds its animal, task, setup and file names, and
+its workbook the measures, so the database could be built by reading those
+(e.g. one row per video: animal, treatment, test, the key measures, and
+where its tracking file is), then asked for, say, the animal nearest its
+group's median on a measure, and the Path or Heatmap made from that
+video's tracking file. To decide then: where the database lives (one file
+per experiment folder, or one for the lab), when it's updated (at Export,
+or by scanning folders), what "representative" means (nearest the median,
+the mean, or chosen by the user), and which images. Not ranked: the
+standalone app (on hold).
 
-**Puzzle Box (marker from 2026-11-10; taken up 2026-11-11).** Creature Capture
+**Puzzle Box (marker from 2026-11-10; after 1.0).** Creature Capture
 records it (assay `Puzzle Box`, with trial days and several sessions a day;
 arena `PuzzleBox`, camera `Overhead`), and the name is in the standard's
 assay list. **Not analyzed in Track Tamer for now**, marked like Skilled

@@ -35,6 +35,10 @@ def chose(p, t, m, choices, default=None, **k):
     return None if answer is None else choices[-1] if answer else choices[-2]
 gui.show_warning = gui.show_info = gui.show_error = said
 gui.ask_yes_no, gui.ask_choice = asked, chose
+# The side-by-side choice: closed without choosing unless a side is queued.
+sides = []
+gui.ask_side_by_side = lambda p, t, m, rows, *a, **k: (
+    log.append(t), [sides.pop(0)] * len(rows) if sides else None)[1]
 import setup_window, review_panel
 for mod in (setup_window, review_panel):
     mod.show_info = mod.show_warning = said
@@ -334,8 +338,12 @@ check("clearing the list closes the setup window (it would be editing videos tha
 
 # --- Object Recognition: reopening the setup window on drawn objects -----------
 app.test_var.set("Object Recognition"); app._on_test_type()
-app.add_files([CLIP]); app.update()
+log.clear(); app.add_files([CLIP]); app.update()
 v = app.files[0].video
+check("a video set up under another test comes back with that setup, and the test it was "
+      "set up as is shown beside the current one (kept here)",
+      app.files[0].restored and "Which test is this?" in log
+      and app.test_var.get() == "Object Recognition" and "regions" not in v.steps_done)
 v.objects["object 1"] = (300.0, 300.0, 40.0); v.objects["object 2"] = (700.0, 300.0, 40.0)
 app.open_setup(); app.update()
 win = app._setup_win

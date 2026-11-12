@@ -56,6 +56,33 @@ def held_entries(roles: np.ndarray, min_frames: int) -> list[tuple[str, int]]:
     return held_states(roles, min_frames)[1:]
 
 
+def spread_repeats(distance: np.ndarray, repeated: np.ndarray) -> np.ndarray:
+    """Per-frame distance with each repeated frame's gap shared out, for
+    speed. A repeated frame is a copy of the one before, so the animal seems
+    to stand still for it and then cover two frames' distance in the next:
+    zero speed, then double. The distance covered over a run of repeats and
+    the real frame after it is spread evenly over those frames, which is the
+    speed the animal actually had (user, 2026-11-11). The total is unchanged,
+    and so is every frame with no repeat beside it."""
+    out = np.asarray(distance, dtype=float).copy()
+    repeated = np.asarray(repeated, dtype=bool)
+    n = len(out)
+    i = 0
+    while i < n:
+        if not repeated[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and repeated[j]:
+            j += 1
+        end = min(j, n - 1)                 # the real frame after the run
+        part = out[i:end + 1]
+        if not np.isnan(part).any():
+            out[i:end + 1] = part.sum() / len(part)
+        i = j + 1
+    return out
+
+
 def carry_over_gaps(labels: np.ndarray, unreadable: np.ndarray) -> np.ndarray:
     """`labels` with each unreadable frame given the label of the last
     readable frame before it (frames before the first readable one take its
@@ -360,6 +387,9 @@ def summary_metrics(data: TrackingData, fps: float = 20.0,
         # time, distance or entries (always 0 for ezTrack's own files).
         "UnreadableFrames": int(bad.sum()),
     }
+    if "Frame_Repeated" in df.columns:
+        # Frames the recording app wrote as a copy of the one before.
+        out["RepeatedFrames"] = int(data.repeated.sum())
     if "Frame_Filled" in df.columns:
         out["FilledFrames"] = int(df["Frame_Filled"].sum())
 
@@ -509,7 +539,8 @@ def _of_events(
     speed = None
     if "Distance_cm" in data.df.columns:
         # Per-frame speed, smoothed so a one-frame tracking jump can't set the peak.
-        speed = (data.df["Distance_cm"].astype(float) * fps).rolling(
+        distance = spread_repeats(data.df["Distance_cm"].to_numpy(dtype=float), data.repeated)
+        speed = (pd.Series(distance) * fps).rolling(
             max(1, int(speed_smoothing_frames)), center=True, min_periods=1
         ).mean().to_numpy()
     opposite = {frozenset(("left", "right")): "lr", frozenset(("top", "bottom")): "tb"}

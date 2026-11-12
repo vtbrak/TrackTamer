@@ -251,7 +251,13 @@ apps' pieces over time (an "Apps" section per app).
 - **A video added again comes back with its setup and tracking file**
   (`VideoSetup.to_saved` / `restore`, `gui._restore_setup`).
 - **Where the info file and the setup disagree, the experimenter chooses**
-  in a side-by-side window (`dialogs.ask_side_by_side`).
+  in a side-by-side window (`dialogs.ask_side_by_side`); the same window
+  offers a returning video's saved tracking settings. The setup is saved
+  when the setup window closes as well as at Track (`gui._save_setup`).
+- **Repeated frames** (the recording app wrote the frame before again):
+  marked per frame (`Frame_Repeated`), counted, speed worked out across
+  them (`metrics.spread_repeats`), and flagged above `repeated_warn_pct`.
+  Never treat them as unreadable: their positions are right to a frame.
 - **Workbook sheets:** Experiment (animal and task, down the page), Summary
   (File, `animal_id`, measures: no tracking settings, no other animal
   columns), Time Bins, Settings, Setup. Each video keeps its own files (no
@@ -259,9 +265,8 @@ apps' pieces over time (an "Apps" section per app).
 - **The same words in every app**: the standard's field names. No `room` or
   `app_name` columns. The capture apps keep a running log (24 fixed
   columns) and no per-trial `_info.csv`.
-- **Puzzle Box** is also moved up (measures decided, ROADMAP "Build
-  order"); it waits for an example video. Conditioned place preference is
-  after 1.0.
+- **Puzzle Box** and conditioned place preference are **after 1.0** (user,
+  2026-11-11; Puzzle Box's measures are decided, ROADMAP "Build order").
 **Acoustic startle (ROADMAP §13) is built** (2026-11-09, on `main`, not released;
 the target for 1.0): test type "Acoustic Startle Response", `core/asr.py`, setup steps
 Threshold and Stimuli, `<name>_MotionIndex.csv`. Waiting on real chamber videos to

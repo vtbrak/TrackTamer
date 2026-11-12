@@ -85,6 +85,10 @@ class VideoSetup:
     # Acoustic startle (ROADMAP §13): stimulus frames typed in, for videos
     # without an info file listing them.
     stimulus_frames: list[int] = field(default_factory=list)
+    # The video whose setup this one's draft was taken from (same arena, from
+    # the info files), or "" if none; `draft_tried` so it's only looked for once.
+    draft_source: str = ""
+    draft_tried: bool = False
 
     @property
     def end_frame(self) -> int:
@@ -258,14 +262,15 @@ class VideoSetup:
             "object_kinds": dict(self.object_kinds),
             "trial_day": self.trial_day, "trial_phase": self.trial_phase,
             "stimulus_frames": [int(f) for f in self.stimulus_frames],
+            "steps_done": sorted(self.steps_done),
         }
 
     def restore(self, saved: dict, test: str) -> bool:
         """Take a setup back from the info file. The session and trial
         details always come back; the shapes only for a video of the frame
-        size they were drawn on. Every step it covers is marked done, except
-        the reference image and tracking check, which need the reference
-        (`use_reference`). False if `saved` isn't a setup this can read
+        size they were drawn on. The steps that were done come back done,
+        except the reference image and tracking check, which need the
+        reference (`use_reference`). False if `saved` isn't a setup this can read
         (nothing is changed then)."""
         try:
             pair = lambda p: (float(p[0]), float(p[1]))                 # noqa: E731
@@ -309,6 +314,11 @@ class VideoSetup:
         else:
             self.scale_cm = cm
         self.reference, self.reference_key = None, None
+        # The steps the user had been through (a setup saved before tracking
+        # may be part done); an older file without them: every step it covers.
+        kept = saved.get("steps_done")
+        if isinstance(kept, list):
+            done &= {str(step) for step in kept}
         self.steps_done = done & set(steps_for(test))
         return True
 
@@ -321,6 +331,22 @@ class VideoSetup:
         self.reference = image.astype(float)
         self.reference_key = self._reference_inputs(dsmpl, frames)
         self.steps_done |= {"reference", "tracking"}
+        return True
+
+    def draft_from(self, saved: dict) -> bool:
+        """Start from another video's saved crop, exclusion shapes, regions,
+        scale and object circles, as a draft: no step is ticked, so the user
+        looks at each one. The session, the object types and the trial
+        details are this video's own and aren't touched. Only from a setup
+        drawn on frames of this video's size. False if nothing was taken."""
+        other = VideoSetup(path=self.path, info=self.info)
+        if (list(saved.get("frame_size") or []) != [self.info.width, self.info.height]
+                or not other.restore(saved, "")):
+            return False
+        self.crop, self.exclusions, self.regions = other.crop, other.exclusions, other.regions
+        self.scale_points, self.scale_cm = other.scale_points, other.scale_cm
+        self.objects = {n: c for n, c in other.objects.items() if n in self.object_names}
+        self.reference, self.reference_key = None, None
         return True
 
     # --- drafts from another video ---------------------------------------

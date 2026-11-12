@@ -574,6 +574,14 @@ class SetupWindow(tk.Toplevel):
         self.next_btn.configure(state="normal" if self.index < len(self.entries) - 1
                                 else "disabled")
         self.copy_btn.configure(state="normal" if self.index > 0 else "disabled")
+        # Nothing set up yet for this video: start from the last video set up
+        # in the same arena (its info file names the arena), as a draft the
+        # user checks step by step.
+        if not s.draft_tried and not s.steps_done and not s.has_drawn_work():
+            s.draft_tried = True
+            found = self.app._arena_draft(self.entry)
+            if found is not None and s.draft_from(found[0]):
+                s.draft_source = found[1]
         info = s.info
         bad, checked = s.unreadable
         text = (f"{info.width} × {info.height} px\n{info.frame_count:,} frames\n"
@@ -581,6 +589,9 @@ class SetupWindow(tk.Toplevel):
                 if info.fps else f"{info.width} × {info.height} px")
         if bad:
             text += f"\n\n{bad} of the first {checked} frames couldn't be read."
+        if s.draft_source:
+            text += (f"\n\nStarted from {s.draft_source} (same arena). Check each "
+                     "step: nothing is ticked until you do.")
         self.info_label.configure(text=text)
         self._go(self.step)
 
@@ -598,6 +609,7 @@ class SetupWindow(tk.Toplevel):
     def _move(self, delta: int, step: str | None = None) -> None:
         self._keep_pending_shape()
         self._points = []
+        self.app._save_setup(self.entry)    # this video's setup, before moving on
         self.index = max(0, min(len(self.entries) - 1, self.index + delta))
         if step:
             self.step = step
@@ -767,6 +779,7 @@ class SetupWindow(tk.Toplevel):
 
     def _close(self) -> None:
         self._keep_pending_shape()
+        self.app._save_setup(self.entry)
         self._clear_controls()      # also drops the links to the main window's boxes
         self.app._refresh()
         self.destroy()
