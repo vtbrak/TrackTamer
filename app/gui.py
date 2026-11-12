@@ -80,7 +80,7 @@ from core.video import (MISSING_STAMPS_ALLOWED, VIDEO_EXTENSIONS, UNREADABLE_WAR
 from core.version import VERSION
 from core.video_setup import OBJECT_TEST, VideoSetup
 from core.asr import (ASR_TEST, HABITUATION_VARIANT, asr_summary, is_motion_file, load_motion, make_asr_job,
-                      real_frame_rate, trial_table)
+                      part_of_frame, real_frame_rate, trial_table)
 from core.plotting import aligned_figure, level_figure, motion_figure
 from core.objects import (distance_px, load_scoring, object_metrics, scoring_table,
                           trial_info, trial_summary)
@@ -3082,10 +3082,32 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self._warn_shared(done)
         self._warn_lost(done)
         self._warn_repeats(done)
+        self._warn_part_of_frame(done)
         if failed:
             show_warning(self, "Some files couldn't be analyzed",
                          "Some files couldn't be analyzed, so they have no results. "
                          "The others were analyzed.\n\n" + "\n".join(failed))
+
+    def _warn_part_of_frame(self, entries) -> None:
+        """After Analyze (startle): name the files whose motion index was
+        worked out on part of the picture (a crop or exclusions, which Track
+        Tamer allowed for startle up to 0.9.4). The index is a share of the
+        pixels analyzed, so theirs isn't comparable with whole-frame files."""
+        if self.test_var.get() != ASR_TEST:
+            return
+        found = [f"• {e.label}: {part_of_frame(e.data)}" for e in entries
+                 if e.data is not None and part_of_frame(e.data)]
+        if found:
+            show_warning(
+                self, "Some videos were tracked on part of the picture",
+                "Some videos were tracked on part of the picture, with a crop or "
+                "exclusion shapes from an earlier version of Track Tamer.\n\n"
+                + "\n".join(found[:10]) + ("\n…" if len(found) > 10 else "")
+                + "\n\nThe motion index is the pixels that changed as a share of the "
+                "pixels analyzed, so leaving part of the picture out changes it, by a "
+                "different amount for each crop. Startle is now always worked out on "
+                "the whole picture. Track these videos again before comparing them "
+                "with others; their review marks are kept.")
 
     def _warn_repeats(self, entries) -> None:
         """After Analyze (startle): flag videos where most frames are copies

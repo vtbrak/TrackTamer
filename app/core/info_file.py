@@ -283,3 +283,17 @@ def update_saved_columns(output_path: str, values: dict) -> tuple[str, str] | No
         return None
     own["tracking"].update(values)
     return path, _text(raw)
+
+
+def update_own(output_path: str, update: dict) -> tuple[str, str] | None:
+    """(info file path, its new text) with `update` merged into the
+    `track_tamer` object of the video a tracking file belongs to (each key of
+    `update` replaces that key); None if no info file names the file. The
+    file is read fresh, so nothing else in it is lost."""
+    found = for_output(output_path)
+    if found is None:
+        return None
+    path, raw, camera = found
+    own = camera.get(OWN)
+    camera[OWN] = {**(own if isinstance(own, dict) else {}), **update}
+    return path, _text(raw)

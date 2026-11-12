@@ -147,11 +147,16 @@ on the saved `_tracked.mp4`.
 
 **Acoustic Startle Response** (videos): the motion index for each frame is the
 share of pixels whose brightness changed by more than the **intensity
-threshold** (default 15, previewed in setup step 3) from the frame before.
+threshold** (default 15, previewed in setup step 2) from the frame before.
+It is always worked out on the **whole picture**: startle has no crop and no
+exclusion shapes, because the index is a share of the pixels analyzed and
+leaving part of the picture out would change it (Analyze names files from an
+earlier version that were tracked with a crop or exclusions; track those
+again).
 For each stimulus, **startle amplitude** = highest motion index in the startle
 window (200 ms after it) minus highest in the baseline window (200 ms before
 it, or before the prepulse on prepulse+pulse trials). Stimuli come from the
-recording app's `_info.json`, or you type the video frames in setup step 4.
+recording app's `_info.json`, or you type the video frames in setup step 3.
 Frames marked as repeated are left out of the peaks, and Analyze warns when
 more than half of a video's frames are repeats (few real frames are left
 around each stimulus, so peaks and reaction times are coarse). The **Trials** tab lists
@@ -161,7 +166,8 @@ around each stimulus, so peaks and reaction times are coarse). The **Trials** ta
 prepulse trials. The **Review**
 tab lists every startle; click one to open the video at its stimulus, and use
 **Next trial** / **Previous trial** ([ and ]), **Go to stimulus** and **Go to
-peak** in the playback window. The Data Summary
+peak** in the playback window, and mark each trial there as a real startle
+or not (**Reviewing startles**, below). The Data Summary
 gives, for each trial type, its count, mean and median amplitude, then the
 same per pulse frequency; **% PPI** (overall and per prepulse level); and,
 for a habituation session only (the recording's info file says Startle
@@ -175,6 +181,41 @@ with) and the largest response, and the **Startle by Level** tab plots
 amplitude against level. Results save as `<name>_MotionIndex.csv` (one row per
 frame; the threshold and other settings are in the video's info file), and Export
 writes `_analysis.xlsx`, `_trace.png`, `_aligned.png` and `_levels.png`.
+
+**Reviewing startles.** Track Tamer measures a startle as a jump in movement
+on the video just after the sound. It can't tell a startle from any other
+movement: a mouse that is rearing or walking when the sound comes gives a
+"startle" that isn't one. So look at each trial in the playback window and
+mark it (the same guide opens from **How to review…** there):
+
+1. Click the trial in the Review list, or **Next trial**. The video opens on
+   the stimulus frame.
+2. Go back about a second (the one-frame button, or Play at 0.25x) and watch
+   the animal up to the stimulus and through it. **Go to peak** shows the
+   frame that was measured.
+3. Click **Yes** or **No** (the Y and N keys do the same).
+   - **Yes, a real trial:** the animal was still or settled when the sound
+     came, and the movement after it is its reaction. Also Yes when the
+     animal **didn't react at all**: no response is a real result, and
+     leaving those out would make the startle look larger than it is.
+   - **No, not a real startle:** the animal was already doing something else
+     just before or during the stimulus (rearing or coming down from a rear,
+     grooming, walking, turning, jumping, climbing, digging), so the video
+     would count that movement as a startle, or bury a real one in it.
+   - Not reasons for No: a small response, no response, or a late one. Judge
+     only whether other movement was going on.
+
+A trial marked No stays in the Trials table with its numbers
+(`Startle_Real` = no) and is left out of every result: the means, startle by
+level, prepulse inhibition and habituation; it's drawn dotted in the Aligned
+Trials plot. Each mark is saved at once in the video's info file, so closing
+the window loses nothing, and the marks stay on the same stimuli if the video
+is tracked again. Trials with no amplitude need no mark. When every trial is
+marked, click **Done reviewing**: it records that you have looked at every
+startle and judged that the ones marked Yes are not due to other movement
+before or during the stimulus. If some aren't marked, Track Tamer says which
+and goes to the first. The Data Summary carries `ASR_TrialsMarkedNotReal`,
+`ASR_TrialsNotReviewed` and `ASR_ReviewDone`.
 
 **Time bins** (per file): the session split into fixed-length bins (default
 60 s) with distance, mean speed, and time-in-zone per bin, plus the chosen

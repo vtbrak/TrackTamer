@@ -25,7 +25,7 @@ from PIL import Image, ImageDraw, ImageTk
 
 from core.plotting import _label_points
 from core.tracking import METHODS, TrackingParams, locate
-from core.video import VideoReader
+from core.video import Prep, VideoReader
 from core.asr import analyzed_pixels, changed_pixels, find_info, parse_frames, stimuli_from_info
 from core.objects import KINDS, PHASES
 from core.video_setup import (ASR_TEST, OBJECT_TEST, OUTLINE, REGION_TEMPLATES, effective_dsmpl,
@@ -43,6 +43,9 @@ STEP_TITLES = {
     "threshold": "3  Threshold",
     "stimuli": "4  Stimuli",
 }
+# Startle has three steps: no crop and no exclusions (the motion index is
+# always of the whole frame; user, 2026-11-12).
+ASR_STEP_TITLES = {"trim": "1  Trim", "threshold": "2  Threshold", "stimuli": "3  Stimuli"}
 ASR_HIGHLIGHT = (40, 40, 255)   # above-threshold pixels in the preview (red, as BGR)
 DOWNSAMPLE_CHOICES = ("1", "0.75", "0.5", "0.25")
 # Session length choices in minutes, per test (C5b item 2); others can be typed.
@@ -498,6 +501,8 @@ class SetupWindow(tk.Toplevel):
         """A step's title (step 5 is "Objects" for Object Recognition)."""
         if key == "regions" and self.app.test_var.get() == OBJECT_TEST:
             return "5  Objects"
+        if self._test() == ASR_TEST and key in ASR_STEP_TITLES:
+            return ASR_STEP_TITLES[key]
         return STEP_TITLES[key]
 
     def _dsmpl(self) -> float:
@@ -850,12 +855,16 @@ class SetupWindow(tk.Toplevel):
 
     def _step_trim(self) -> None:
         s = self.setup
+        startle = self._test() == ASR_TEST
         self.instructions.configure(text=(
             "Scrub to where the trial starts and click Set start here: that frame is "
             "time 0 of the analysis. The trial then runs for the session length (type "
-            "another length, or scrub to the end and click Set end here). Then drag a "
-            "box around the arena to crop to it: tracking ignores everything outside "
-            "the box (optional)."))
+            "another length, or scrub to the end and click Set end here). "
+            + ("The motion index is worked out on the whole picture: there is no crop "
+               "and nothing is excluded, because leaving part of the picture out would "
+               "change the index." if startle else
+               "Then drag a box around the arena to crop to it: tracking ignores "
+               "everything outside the box (optional).")))
         self._make_scrub(self.controls, 0, s.info.frame_count - 1, s.start,
                          self._show_trim_frame)
 
@@ -864,9 +873,10 @@ class SetupWindow(tk.Toplevel):
         ttk.Button(row, text="Set start here", command=self._set_start).pack(side=tk.LEFT)
         self.start_text = ttk.Label(row)
         self.start_text.pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(row, text="Clear crop", command=self._clear_crop).pack(side=tk.RIGHT)
         ds = ttk.Frame(row)
-        ds.pack(side=tk.RIGHT, padx=(0, 16))
+        if not startle:     # (startle: always the whole frame at full size)
+            ttk.Button(row, text="Clear crop", command=self._clear_crop).pack(side=tk.RIGHT)
+            ds.pack(side=tk.RIGHT, padx=(0, 16))
         ttk.Label(ds, text="Downsample:").pack(side=tk.LEFT)
         self.ds_var = tk.StringVar(value=f"{self._dsmpl():g}")
         box = ttk.Combobox(ds, textvariable=self.ds_var, values=DOWNSAMPLE_CHOICES,
@@ -894,10 +904,11 @@ class SetupWindow(tk.Toplevel):
         self.end_text = ttk.Label(row2)
         self.end_text.pack(side=tk.LEFT, padx=(8, 0))
 
-        self.canvas.bind("<Button-1>", self._crop_press)
-        self.canvas.bind("<B1-Motion>", self._crop_drag)
-        self.canvas.bind("<ButtonRelease-1>", self._crop_release)
-        self.canvas.redraw_overlay = self._draw_crop
+        if not startle:
+            self.canvas.bind("<Button-1>", self._crop_press)
+            self.canvas.bind("<B1-Motion>", self._crop_drag)
+            self.canvas.bind("<ButtonRelease-1>", self._crop_release)
+            self.canvas.redraw_overlay = self._draw_crop
         self._update_trim_text()
         self._load_scrub_frame()
 
@@ -1570,9 +1581,9 @@ class SetupWindow(tk.Toplevel):
 
     def _load_threshold_frame(self) -> None:
         s, frame = self.setup, self._current_frame()
-        with VideoReader(s.path, s.prep(1.0)) as reader:
+        with VideoReader(s.path, Prep()) as reader:       # the whole frame, as it's measured
             self._asr_pair = (reader.read_at(frame - 1), reader.read_at(frame))
-        self._asr_mask = s.exclusion_mask(1.0)
+        self._asr_mask = None
         self._draw_threshold()
 
     def _draw_threshold(self) -> None:
@@ -1595,7 +1606,7 @@ class SetupWindow(tk.Toplevel):
 
     def _step_stimuli(self) -> None:
         s = self.setup
-        with VideoReader(s.path, s.prep(1.0)) as reader:
+        with VideoReader(s.path, Prep()) as reader:
             self.canvas.show(reader.read_at(s.start))
         found = find_info(s.path)
         stimuli = stimuli_from_info(found[0]) if found else []

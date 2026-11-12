@@ -86,7 +86,9 @@ def prep_from_settings(settings: dict) -> Prep | None:
     if it doesn't record them (e.g. ezTrack's own files, whose crop is
     unknown, so positions can't be lined up with the video)."""
     if "Downsample" not in settings and "Crop" not in settings:
-        return None
+        # A startle motion file is of the whole frame unless it says
+        # otherwise (no crop since 2026-11-12), and has no positions to line up.
+        return Prep() if "Intensity_Threshold" in settings else None
     try:
         dsmpl = float(settings.get("Downsample", 1.0))
     except (TypeError, ValueError):

@@ -39,6 +39,7 @@ NAMED = re.compile(r"(Percent_|Pct|Frames?$|Frame$|FPS$|FrameNo$)")
 # Counts, ratios, indexes and labels: nothing to measure in.
 UNITLESS = re.compile(
     r"^(File|animal_id|trial_day|session_number|Test|Bin|Trial|Type|Note|Pulse_Kind|Status|StimulusSource|SharedRegions|"
+    r"Startle_Real|ASR_ReviewDone|"
     r"FillGaps|OR_Phase|OR_NovelObjects|OR_ZoneDistance|"
     r"Entries_.*|Region_transitions|OutsideEvents|EPM_.*Entries|EPM_.*Ratio|EPM_AnxietyIndex|"
     r"OF_.*Entries|OF_Crossings_.*|OR_Bouts_.*|OR_ZoneVisits_.*|OR_VisitsNotReviewed|"
