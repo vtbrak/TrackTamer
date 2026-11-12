@@ -29,6 +29,8 @@ def _choice(p, t, m, choices, default=None, **k):
     answer = True
     return None if answer is None else choices[-1] if answer else choices[-2]
 gui.ask_choice = _choice
+# Videos without an info file: the window isn't shown (closed without Done).
+gui.show_missing_info = lambda *a, **k: None
 import setup_window, review_panel
 for mod in (setup_window, review_panel):
     mod.show_info, mod.show_warning = gui.show_info, gui.show_warning

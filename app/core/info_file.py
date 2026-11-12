@@ -143,6 +143,85 @@ def write(video_path: str, update: dict, label: str | None = None) -> str:
     return path
 
 
+# --- info files Track Tamer makes itself -------------------------------------
+# A video from before the recording apps wrote info files (or whose info file
+# was lost) gets `<video name>_info.json` in the standard's layout. It can
+# hold a copy of an info file the experimenter points to, the animal's
+# information typed into Track Tamer, or just Track Tamer's own part.
+TYPED_FIELDS = ("animal_id", "sex", "strain", "dob", "treatment", "cohort", "date",
+                "start_time", "experimenter", "trial_day", "notes")
+
+
+def _own(video_path: str) -> tuple[str, dict, dict]:
+    """(path, contents, this video's `cameras` entry) of the video's own info
+    file, read from disk or started empty."""
+    name = os.path.basename(video_path)
+    path = own_path(video_path)
+    raw = read(path) or {"schema_version": 1}
+    listed = cameras(raw)
+    camera = next((c for c in listed if c.get("video") == name), None)
+    if camera is None:
+        camera = {"video": name}
+        raw["cameras"] = listed + [camera]
+    return path, raw, camera
+
+
+def _save(path: str, raw: dict) -> str:
+    with replacing(path) as tmp:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+            f.write(_text(raw))
+    return path
+
+
+def adopt(video_path: str, source_path: str, camera: dict | None = None) -> str:
+    """Give a video the info file the experimenter chose for it: its contents
+    are copied into the video's own `<video name>_info.json`, with the one
+    `cameras` entry that is this video's (`camera`, from the chosen file;
+    its `video` is set to this video's name so the two stay matched). The
+    chosen file itself isn't touched. Anything Track Tamer had already saved
+    for the video is kept. Returns the new file's path; ValueError if the
+    chosen file isn't an info file."""
+    source = read(source_path)
+    if source is None:
+        raise ValueError(f"{os.path.basename(source_path)} isn't an info file "
+                         "(it couldn't be read as one).")
+    path, mine, own_camera = _own(video_path)
+    kept = own_camera.get(OWN)
+    entry = {k: v for k, v in (camera or {}).items() if k != OWN}
+    entry["video"] = os.path.basename(video_path)
+    entry[OWN] = {**(kept if isinstance(kept, dict) else {}),
+                  "info_copied_from": os.path.basename(source_path)}
+    raw = {k: v for k, v in source.items() if k != "cameras"}
+    raw["cameras"] = [entry]
+    return _save(path, raw)
+
+
+def write_fields(video_path: str, fields: dict, app_name: str, app_version: str) -> str:
+    """Save information typed into Track Tamer (the animal, the trial date
+    and so on: `TYPED_FIELDS`) in the video's own info file, as the standard's
+    fields. A blank value takes the field out, as the standard asks. Only
+    for a file Track Tamer made: `find` must not have matched a recording
+    app's file for this video (ValueError if it has)."""
+    found = find(video_path)
+    if found is not None and not found[3] and found[0] != own_path(video_path):
+        raise ValueError("This video's information comes from its recording app's info "
+                         "file, which Track Tamer doesn't change.")
+    path, raw, _camera = _own(video_path)
+    for key in TYPED_FIELDS:
+        value = fields.get(key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            raw.pop(key, None)
+        elif key == "trial_day" and str(value).strip().isdigit():
+            raw[key] = int(str(value).strip())      # a number, as the standard has it
+        else:
+            raw[key] = value.strip() if isinstance(value, str) else value
+    raw.setdefault("schema_version", 1)
+    if not str(raw.get("app_name") or "").strip():
+        # (a copied info file keeps its recording app's name)
+        raw["app_name"], raw["app_version"] = app_name, app_version
+    return _save(path, raw)
+
+
 def _video_stem(output_path: str) -> str | None:
     base = os.path.basename(output_path)
     for ending in TRACKING_ENDINGS:

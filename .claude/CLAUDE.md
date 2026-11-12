@@ -254,6 +254,14 @@ apps' pieces over time (an "Apps" section per app).
   in a side-by-side window (`dialogs.ask_side_by_side`); the same window
   offers a returning video's saved tracking settings. The setup is saved
   when the setup window closes as well as at Track (`gui._save_setup`).
+- **Videos with no info file** are asked about when added
+  (`info_dialog.show_missing_info`): choose an info file (picker opens in
+  the video's folder; copied into the video's own file, `info_file.adopt`)
+  or type the animal's information (`info_dialog.ask_animal`,
+  `info_file.write_fields`, `app_name` "Track Tamer"). Done gives each one
+  an info file. **GUI tests must stub `gui.show_missing_info`,
+  `gui.ask_side_by_side` and `gui.ask_animal`**, or a real window opens on
+  the user's screen and waits (that happened on 2026-11-11).
 - **Repeated frames** (the recording app wrote the frame before again):
   marked per frame (`Frame_Repeated`), counted, speed worked out across
   them (`metrics.spread_repeats`), and flagged above `repeated_warn_pct`.

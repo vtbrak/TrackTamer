@@ -343,6 +343,17 @@ A video's setup is saved in its info file when you close the setup window
 If a video comes back tracked with other tracking settings than the current
 ones, both are shown side by side so you can switch to the saved ones.
 
+**Videos with no info file** (ones recorded before the recording apps wrote
+them). When you add such videos, a window lists them and asks whether there's
+an info file for each. **Choose Info File…** opens a file picker in the
+video's own folder; the file you choose is copied into an info file beside
+the video. If there isn't one, **Add Animal Information…** lets you type the
+animal's ID, sex, strain, date of birth, treatment, cohort and the trial's
+date, experimenter and day. Click **Done** when you're finished: every one
+of those videos then has an info file of its own (`<video name>_info.json`)
+and isn't asked about again. You can add or change typed information later
+with **Animal information…** on the Experiment tab.
+
 The **Experiment** tab shows the selected file's animal and task as soon as
 it's added. When you open setup on a video with nothing drawn yet, it starts
 from the last video set up in the same arena with the same camera (from the
@@ -388,6 +399,7 @@ TrackTamer/
 │   ├── region_dialog.py Match regions dialog
 │   ├── tooltip.py       hover tooltips
 │   ├── dialogs.py       pop-up messages (same look on Mac and Windows)
+│   ├── info_dialog.py   windows for videos with no info file (choose one, or type the animal in)
 │   ├── tests/           checks run during development
 │   ├── environment.yml  Anaconda environment (keep in step with requirements.txt)
 │   ├── requirements.txt packages for the .venv fallback

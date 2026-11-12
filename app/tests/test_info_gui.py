@@ -33,6 +33,24 @@ def side_by_side(parent, title, message, rows, left, right, **k):
     side = ticks.pop(0) if ticks else "right"
     return None if side is None else [side] * len(rows)
 gui.ask_side_by_side = side_by_side
+# Videos without an info file: the window's rows are recorded, the queued
+# actions are done for the first row ("choose" / "animal"), and the queued
+# answer is returned (True = Done, None = closed).
+missing, todo, answer = [], [], [None]
+def missing_info(parent, rows, choose, animal):
+    missing.append([label for _, label in rows])
+    done = [(choose if what == "choose" else animal)(rows[0][0]) for what in todo]
+    del todo[:]
+    missing.append(done)
+    return answer[0]
+gui.show_missing_info = missing_info
+picker = {"path": "", "opened_in": None}
+def pick_file(**k):
+    picker["opened_in"] = k.get("initialdir")
+    return picker["path"]
+gui.filedialog.askopenfilename = pick_file
+typed = {}
+gui.ask_animal = lambda parent, video, start: (typed.update(start=dict(start)), typed.get("values"))[1]
 gui.TrackTamerApp.wait_window = lambda self, w=None: None
 
 fails = 0
@@ -180,17 +198,104 @@ check("a frame size in the info file that isn't the video's is reported",
       "800 x 600 px, the video's are 1280 x 720" in said)
 app.fps_var.set(was); app.config_data["fps"] = float(was)
 
-app.clear_files(); clear()
-plain = os.path.join(tmp, "plain.mp4")
+# --- videos that came without an info file -----------------------------------
+app.clear_files(); clear(); del missing[:]
+old_folder = os.path.join(tmp, "older"); os.makedirs(old_folder)
+plain = os.path.join(old_folder, "6_2024-04-01_11-49-23.mp4")
 shutil.copy(PRACTICE, plain)
+own_json = os.path.join(old_folder, "6_2024-04-01_11-49-23_info.json")
+answer[0] = None
 app.add_files([plain]); app.update()
-check("a video with no info file is added without questions, with a blank ID",
-      app.files[0].info is None and not asked and not log
+check("a video with no info file is asked about; closing the window leaves it as it is",
+      missing[0] == ["6_2024-04-01_11-49-23.mp4"] and app.files[0].info is None
+      and not os.path.exists(own_json) and not asked
       and app.summary_tree.item(app.summary_tree.get_children()[0], "values")[1] == "")
-check("its Experiment tab says no info file was found, with the rows blank",
+check("its Experiment tab says no info file was found, with the rows blank, and offers "
+      "to add the animal's information",
       "no recording app's info file" in app.experiment_note.get()
       and ("Animal", "Animal ID", "") in [tuple(app.experiment_tree.item(i, "values"))
-                                          for i in app.experiment_tree.get_children()])
+                                          for i in app.experiment_tree.get_children()]
+      and str(app.animal_btn.cget("state")) == "normal")
+
+# Choosing a file that isn't an info file, then cancelling the picker.
+app.clear_files(); clear(); del missing[:]
+junk = os.path.join(tmp, "notes.json"); open(junk, "w").write("[1, 2]")
+picker["path"] = junk; todo[:] = ["choose"]; answer[0] = None
+app.add_files([plain]); app.update()
+check("the file picker opens in the video's own folder; a file that isn't an info file is "
+      "refused with a note",
+      picker["opened_in"] == old_folder and "Not an info file" in log
+      and missing[1] == [None] and app.files[0].info is None)
+
+# Choosing the real info file (kept in another folder, listing the video
+# under the name it had when it was recorded).
+app.clear_files(); clear(); del missing[:]
+source = os.path.join(tmp, "from the recording computer_info.json")
+with open(source, "w") as f:
+    json.dump({"schema_version": 1, "app_name": "Creature Capture", "assay": "Open Field",
+               "animal_id": "M6", "treatment": "drug A", "duration_set_min": 0.5,
+               "cameras": [{"label": "Overhead", "video": "2024-04-01_11-49-23_OF_Overhead.mp4"}]}, f)
+picker["path"] = source; todo[:] = ["choose"]; answer[0] = True
+app.test_var.set("Open Field"); app._on_test_type(); clear()
+app.add_files([plain]); app.update()
+e = app.files[0]
+check("the chosen info file is copied into the video's own info file, and used straight away",
+      missing[1] == ["info file: from the recording computer_info.json"] and os.path.exists(own_json)
+      and e.info.animal_id == "M6" and e.info.from_recording_app
+      and app.summary_tree.item(app.summary_tree.get_children()[0], "values")[1] == "M6")
+check("it goes through the same checks as any info file (its session length is shown "
+      "beside Track Tamer's)",
+      asked and asked[-1][1] == [("Session length", "60 min", "0.5 min")])
+check("information from a recording app can't be changed by typing",
+      str(app.animal_btn.cget("state")) == "disabled")
+app.clear_files(); clear(); del missing[:]
+app.add_files([plain]); app.update()
+check("added again, the video has its info file and isn't asked about",
+      missing == [] and app.files[0].info.animal_id == "M6")
+os.remove(own_json)
+
+# No info file: the animal's information is typed in instead.
+app.clear_files(); clear(); del missing[:]
+typed["values"] = {"animal_id": "M9", "sex": "F", "strain": "C57BL/6J", "dob": "2024-02-01",
+                   "treatment": "saline", "cohort": "", "date": "2024-04-01",
+                   "experimenter": "ES", "trial_day": "1", "notes": ""}
+todo[:] = ["animal"]; answer[0] = True
+app.add_files([plain]); app.update()
+e = app.files[0]
+saved = json.load(open(own_json, encoding="utf-8"))
+check("the animal's information can be typed in, starting from the date in the file name",
+      typed["start"]["date"] == "2024-04-01" and missing[1] == ["animal: M9"]
+      and e.info.animal_id == "M9" and not e.info.from_recording_app)
+check("it's saved as the standard's fields in an info file beside the video",
+      saved["animal_id"] == "M9" and saved["dob"] == "2024-02-01" and saved["trial_day"] == 1
+      and saved["start_time"] == "11:49:23" and saved["app_name"] == "Track Tamer"
+      and "cohort" not in saved and saved["cameras"][0]["video"] == os.path.basename(plain))
+rows_now = [tuple(app.experiment_tree.item(i, "values")) for i in app.experiment_tree.get_children()]
+check("the Experiment tab shows it, with the age worked out, and it can be changed there",
+      ("Animal", "Animal ID", "M9") in rows_now and ("Animal", "Age (days)", "60") in rows_now
+      and str(app.animal_btn.cget("state")) == "normal")
+typed["values"] = dict(typed["values"], animal_id="M9b", notes="ear notch")
+app._set_selection([0], focus=0); app.edit_animal_info(); app.update()
+check("changing it from the Experiment tab starts from what was saved and updates the list",
+      typed["start"]["animal_id"] == "M9" and app.files[0].info.animal_id == "M9b"
+      and app.summary_tree.item(app.summary_tree.get_children()[0], "values")[1] == "M9b"
+      and json.load(open(own_json, encoding="utf-8"))["notes"] == "ear notch")
+os.remove(own_json)
+
+# Neither: Done with nothing chosen still leaves an info file, so it isn't asked again.
+app.clear_files(); clear(); del missing[:]
+answer[0] = True
+app.add_files([plain]); app.update()
+made = json.load(open(own_json, encoding="utf-8"))
+check("Done with nothing added still gives the video an info file of its own",
+      made["cameras"][0]["video"] == os.path.basename(plain)
+      and made["cameras"][0]["track_tamer"] == {"asked_for_info": True}
+      and app.files[0].info is not None and not app.files[0].info.recorded and not asked)
+app.clear_files(); clear(); del missing[:]
+app.add_files([plain]); app.update()
+check("so it isn't asked about again, and its animal information can still be added later",
+      missing == [] and str(app.animal_btn.cget("state")) == "normal")
+answer[0] = None
 
 # Many repeated frames in a plus maze session: flagged after Analyze.
 from samples import EPM

@@ -1705,7 +1705,30 @@ user the same day:
       and says so when added again (its reference image isn't reused).
     - **A test Track Tamer doesn't analyze: added with a notice, as it
       was.**
-  **Still to build:** the PC checklist.
+  - **Videos that came without an info file** (user, 2026-11-11: videos
+    recorded before the new apps "will need to have a json created. if they
+    are fed into the system without a json ask if there is a json
+    associated and provide a file picker that starts with the location the
+    video file came from. if there is not ask if the experimenter would
+    like to add in animal informatoin. They will either be re-run or used
+    as is."). When such videos are added, a window lists them
+    (`info_dialog.show_missing_info`): for each, **Choose Info File…**
+    (opens in the video's folder; the chosen file is copied into the
+    video's own `<video name>_info.json` with its camera entry matched to
+    this video, and isn't itself touched: `info_file.adopt`) or **Add
+    Animal Information…** (`info_dialog.ask_animal`: animal ID, sex,
+    strain, date of birth, treatment, cohort, trial date (taken from the
+    file name when it has one), experimenter, trial day, notes; saved as
+    the standard's fields with `app_name` "Track Tamer":
+    `info_file.write_fields`). **Done** gives every one of them an info
+    file, so they aren't asked about again; closing the window instead
+    asks next time. The Experiment tab's **Animal information…** button
+    adds or changes typed information later; a recording app's information
+    is never changed. Videos tracked before today still need setting up
+    again (their old tracking files load as they are); the user will
+    re-track the example data at some point.
+  **Still to build:** nothing in this section; the PC checklist is in the
+  user's hands.
   **Dropped (user, 2026-11-11):** disturbances marked during recording
   (anything unusual goes in Notes), and draft object circles from a
   calibrated rig (the same-arena draft brings the last video's circles, and
