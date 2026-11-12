@@ -1131,8 +1131,9 @@ class SetupWindow(tk.Toplevel):
     def _finish_shape(self) -> None:
         if len(self._points) >= 3:
             cx, cy = self._crop_corner()
-            self.setup.exclusions.append(([p[0] + cx for p in self._points],
-                                          [p[1] + cy for p in self._points]))
+            # (trimmed to the video frame: it can be drawn past the edge)
+            self.setup.add_exclusion([p[0] + cx for p in self._points],
+                                     [p[1] + cy for p in self._points])
             self.app._refresh()
         self._points = []
         self._redraw_shapes()

@@ -149,7 +149,8 @@ def write(video_path: str, update: dict, label: str | None = None) -> str:
 # hold a copy of an info file the experimenter points to, the animal's
 # information typed into Track Tamer, or just Track Tamer's own part.
 TYPED_FIELDS = ("animal_id", "sex", "strain", "dob", "treatment", "cohort", "date",
-                "start_time", "experimenter", "trial_day", "notes")
+                "start_time", "experimenter", "trial_day", "session_number", "notes")
+WHOLE_NUMBERS = ("trial_day", "session_number")     # numbers in the standard
 
 
 def _own(video_path: str) -> tuple[str, dict, dict]:
@@ -211,7 +212,7 @@ def write_fields(video_path: str, fields: dict, app_name: str, app_version: str)
         value = fields.get(key)
         if value is None or (isinstance(value, str) and not value.strip()):
             raw.pop(key, None)
-        elif key == "trial_day" and str(value).strip().isdigit():
+        elif key in WHOLE_NUMBERS and str(value).strip().isdigit():
             raw[key] = int(str(value).strip())      # a number, as the standard has it
         else:
             raw[key] = value.strip() if isinstance(value, str) else value

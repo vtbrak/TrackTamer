@@ -23,9 +23,24 @@ from .safe_write import replacing
 IMAGE_DPI = 200  # the default 5 x 4.5 in figure saves at 1000 x 900 px
 
 
-def output_paths(source_path: str) -> dict[str, str]:
-    """Where a source CSV's outputs go: alongside it, with suffixes added."""
+SUMMARY_SHEET = "Data Summary"
+TRACKING_ENDINGS = ("_LocationOutput", "_MotionIndex")
+
+
+def output_base(source_path: str) -> str:
+    """The name every result file of a video starts with: the video's own
+    name, whether the video or its tracking file was added, so the analysis
+    file is always `<video name>_analysis.xlsx` (user, 2026-11-12)."""
     base = os.path.splitext(source_path)[0]
+    for ending in TRACKING_ENDINGS:
+        if base.endswith(ending):
+            return base[: -len(ending)]
+    return base
+
+
+def output_paths(source_path: str) -> dict[str, str]:
+    """Where a file's outputs go: beside it, named after its video."""
+    base = output_base(source_path)
     return {
         "analysis": base + "_analysis.xlsx",
         "path": base + "_path.png",
@@ -39,14 +54,14 @@ def write_analysis_workbook(
     experiment: pd.DataFrame | None = None, setup: pd.DataFrame | None = None,
 ) -> None:
     """One workbook, each table on its own sheet: Experiment (the animal and
-    the task, listed down the page), Summary (its row), Interactions (Object
+    the task, listed down the page), Data Summary (its row), Interactions (Object
     Recognition's logged scoring), Time Bins, Settings, and Setup (the crop,
     regions, exclusions and scale as numbers: a backup of the video's info
     file). Blank cells mean a value wasn't recorded or couldn't be computed
     (e.g. a latency to a region never entered)."""
     sheets = {
         "Experiment": experiment,
-        "Summary": pd.DataFrame([summary]),
+        SUMMARY_SHEET: pd.DataFrame([summary]),
         "Interactions": interactions,
         bins_sheet: bins if bins is not None else pd.DataFrame(),
         "Settings": settings,
@@ -102,9 +117,11 @@ def _points(shape: dict) -> str:
     return "; ".join(f"{x:.1f}, {y:.1f}" for x, y in zip(shape["xs"], shape["ys"]))
 
 
-def setup_sections(saved: dict) -> dict[str, dict]:
+def setup_sections(saved: dict, startle: bool = False) -> dict[str, dict]:
     """A video's setup (`VideoSetup.to_saved`) as {section: {setting: value}}
-    for the Setup sheet. Positions are in full-size video pixels."""
+    for the Setup sheet. Positions are in full-size video pixels. A startle
+    video (`startle`) has no regions, scale or objects, so those sections are
+    left out rather than listed as "none"."""
     number = lambda v: "" if v is None else v          # noqa: E731
     size = saved.get("frame_size") or ["", ""]
     sections = {"Session": {
@@ -117,19 +134,21 @@ def setup_sections(saved: dict) -> dict[str, dict]:
     crop = saved.get("crop")
     sections["Crop"] = {"Crop (x0, y0, x1, y1)":
                         ", ".join(f"{v:.1f}" for v in crop) if crop else "none"}
-    regions = saved.get("regions") or {}
-    sections["Regions"] = ({name: _points(shape) for name, shape in regions.items()}
-                           or {"Regions": "none"})
+    if not startle:
+        regions = saved.get("regions") or {}
+        sections["Regions"] = ({name: _points(shape) for name, shape in regions.items()}
+                               or {"Regions": "none"})
     shapes = saved.get("exclusions") or []
     sections["Exclusions"] = ({f"Shape {n}": _points(shape) for n, shape in enumerate(shapes, 1)}
                               or {"Exclusion shapes": "none"})
-    points = saved.get("scale_points") or []
-    sections["Scale"] = {
-        "Scale points": "; ".join(f"{x:.1f}, {y:.1f}" for x, y in points) or "none",
-        "Scale length (cm)": number(saved.get("scale_cm")),
-    }
+    if not startle:
+        points = saved.get("scale_points") or []
+        sections["Scale"] = {
+            "Scale points": "; ".join(f"{x:.1f}, {y:.1f}" for x, y in points) or "none",
+            "Scale length (cm)": number(saved.get("scale_cm")),
+        }
     circles, kinds = saved.get("objects") or {}, saved.get("object_kinds") or {}
-    if circles:
+    if circles and not startle:
         sections["Objects"] = {
             name: (f"center {c[0]:.1f}, {c[1]:.1f}; radius {c[2]:.1f}; "
                    f"{kinds.get(name, 'Familiar')}")

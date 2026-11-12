@@ -722,35 +722,89 @@ KEY_MEASURES = {
 _BIN_KEY_RENAMES = {"EPM_PctSession_Center": "EPM_PctBin_Center"}
 
 
+_OBJECT_PARTS = (("OR_Time_", "_s"), ("OR_Bouts_", ""), ("OR_Latency_", "_s"),
+                 ("OR_ZoneTime_", "_s"), ("OR_ZoneVisits_", ""))
+_OBJECT_TOTALS = ("OR_Bouts_Total", "OR_Latency_First_s")
+
+
+def _object_of(column: str) -> str | None:
+    """The object a per-object column is about ("object 1"), else None."""
+    if column in _OBJECT_TOTALS:
+        return None
+    for prefix, suffix in _OBJECT_PARTS:
+        if column.startswith(prefix) and column.endswith(suffix):
+            return column[len(prefix): len(column) - len(suffix)]
+    return None
+
+
 def _object_keys(columns, bins: bool = False) -> list[str]:
     """Object Recognition's key measures (ROADMAP §15): the trial, the
-    discrimination index, % preference and total, then each object's
-    interaction time, bouts and latency (object names vary, so these are
-    found by prefix)."""
+    discrimination index, % preference and total, then for each object in
+    turn its interaction time, bouts and latency, together (object names
+    vary, so these are found by prefix)."""
     columns = list(columns)
-    per = lambda prefix, suffix="": [c for c in columns if c.startswith(prefix)
-                                     and c.endswith(suffix)
-                                     and c not in ("OR_Bouts_Total", "OR_Latency_First_s")]
-    head = ([] if bins else ["OR_Day", "OR_Phase", "OR_NovelObjects"]) + [
+    head = ([] if bins else ["OR_Phase", "OR_NovelObjects"]) + [
         "OR_DiscriminationIndex", "OR_PctPreference", "OR_Total_s"]
-    return [c for c in head if c in columns] + per("OR_Time_", "_s") + per("OR_Bouts_") + (
-        [] if bins else per("OR_Latency_", "_s"))
+    parts = _OBJECT_PARTS[:2] if bins else _OBJECT_PARTS[:3]
+    names = list(dict.fromkeys(_object_of(c) for c in columns if c.startswith("OR_Time_")
+                               and _object_of(c)))
+    per_object = [f"{prefix}{name}{suffix}" for name in names for prefix, suffix in parts]
+    return [c for c in head if c in columns] + [c for c in per_object if c in columns]
+
+
+def _topic(column: str):
+    """What a column is about, for keeping one group's numbers together in
+    an exported table: a region, an object, or a part of the test (the plus
+    maze's center, open arms, closed arms and ratios; the open field's
+    center, periphery, sides, crossings and crossing speed). None for a
+    column that stands on its own."""
+    for prefix in ("Time_", "Percent_", "Entries_"):
+        if column.startswith(prefix):
+            name = column[len(prefix):]
+            return ("region", name[:-2] if prefix == "Time_" and name.endswith("_s") else name)
+    if column.startswith("OR_"):
+        name = _object_of(column)
+        return ("object", name) if name else None
+    if column.startswith("EPM_"):
+        body = column[4:]
+        for part, words in (("ratio", ("Ratio", "Index")), ("center", ("Center",)),
+                            ("open", ("Open",)), ("closed", ("Closed",))):
+            if any(w in body for w in words):
+                return ("epm", part)
+    if column.startswith("OF_"):
+        body = column[3:]
+        for part, words in (("speed", ("CrossingSpeed",)), ("crossings", ("Crossings",)),
+                            ("center", ("Center",)), ("periphery", ("Periphery",)),
+                            ("sides", ("Left", "Right", "Top", "Bottom"))):
+            if any(w in body for w in words):
+                return ("of", part)
+    return None
+
+
+def group_together(columns) -> list[str]:
+    """`columns` with each group's columns side by side (user, 2026-11-12:
+    "put the data for one group all together instead of spread out"): the
+    first column of a group brings the rest of its group up beside it, in
+    their own order. So a region's time, percent and entries sit together,
+    as do an object's numbers and each part of a test."""
+    columns = list(columns)
+    topics = {c: _topic(c) for c in columns}
+    out, placed = [], set()
+    for c in columns:
+        if c in placed:
+            continue
+        members = [c] if topics[c] is None else [x for x in columns if topics[x] == topics[c]]
+        out += [m for m in members if m not in placed]
+        placed.update(members)
+    return out
 
 
 def _asr_keys(columns) -> list[str]:
-    """Acoustic startle's key measures: trials, the mean amplitude per trial
-    type, prepulse inhibition (overall, then each level) and habituation."""
-    columns = list(columns)
-    per = lambda prefix: [c for c in columns if c.startswith(prefix)]
-    ppi = [c for c in per("ASR_PPI_") if c != "ASR_PPI_Overall_pct"]
-    head = [c for c in ("ASR_Trials", "ASR_TrialsUsed") if c in columns]
-    tail = [c for c in ("ASR_PPI_Overall_pct",) if c in columns] + ppi + [
-        c for c in ("ASR_Habituation_pct",) if c in columns]
-    # Sessions that step through sound levels: the threshold and the largest
-    # response come right after the means per level.
-    levels = [c for c in columns if c.startswith("ASR_Threshold") and c.endswith("_dB")] \
-        + per("ASR_Max_")
-    return head + per("ASR_Mean_") + levels + tail
+    """Acoustic startle's key measures: every startle measure, in the order
+    the engine builds them, which keeps each group's numbers together (a
+    trial type's count, mean and median; then per sound; per level; then
+    prepulse inhibition and short-term habituation)."""
+    return [c for c in columns if c.startswith("ASR_")]
 
 
 def key_measures(test: str, bins: bool = False, columns=()) -> list[str]:
@@ -765,13 +819,14 @@ def key_measures(test: str, bins: bool = False, columns=()) -> list[str]:
 
 
 def order_summary(row: dict, test: str) -> dict:
-    """The row with File first, then the test's key measures, then the rest
-    in their usual order. Tests without key measures are unchanged."""
+    """The row as exported: File first, then the test's key measures in
+    their order, then the rest, **with each group's columns brought together**
+    (`group_together`): a key measure is followed by the other numbers about
+    the same thing (the center's entries and latency beside its time, say)."""
     keys = [k for k in key_measures(test, columns=row) if k in row]
-    if not keys:
-        return row
     first = [k for k in ("File",) if k in row] + keys
-    return {**{k: row[k] for k in first}, **{k: v for k, v in row.items() if k not in first}}
+    order = group_together(first + [k for k in row if k not in first])
+    return {k: row[k] for k in order}
 
 
 def drop_duplicates(table, roles: dict[str, str], test: str):
@@ -797,13 +852,14 @@ def drop_duplicates(table, roles: dict[str, str], test: str):
 
 
 def order_bins(bins: pd.DataFrame, test: str) -> pd.DataFrame:
-    """Time Bins with Bin / Start_s / End_s first, then the key measures."""
+    """Time Bins with Bin / Start_s / End_s first, then the key measures,
+    then the rest, each group's columns together (`group_together`)."""
     keys = [k for k in key_measures(test, bins=True, columns=bins.columns)
             if k in bins.columns]
-    if not keys or bins.empty:
+    if bins.empty:
         return bins
     first = [c for c in ("Bin", "Start_s", "End_s") if c in bins.columns] + keys
-    return bins[first + [c for c in bins.columns if c not in first]]
+    return bins[group_together(first + [c for c in bins.columns if c not in first])]
 
 
 _DETAILS = ("Frames", "FPS", "Duration_s", "TotalDistance_px", "UnreadableFrames",
@@ -830,7 +886,7 @@ def summary_column_groups(columns, test: str = "") -> dict[str, list[str]]:
             c for c in columns if c.startswith(("EPM_", "OF_", "OR_", "ASR_"))]
     groups["key"] = keys
     for c in columns:
-        if c in ("File", "animal_id") or c in keys:
+        if c in ("File", "animal_id", "trial_day", "session_number") or c in keys:
             continue    # shown beside every row, not in a group
         if c in _BASICS:
             groups["basics"].append(c)

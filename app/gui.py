@@ -72,18 +72,18 @@ from core import (
     describe_roles,
     resolve_roles,
 )
-from core.export import (output_paths, save_figure, settings_table, setup_sections,
+from core.export import (output_base, output_paths, save_figure, settings_table, setup_sections,
                          write_analysis_workbook)
 from core.gaps import fill_gaps
 from core.video import (MISSING_STAMPS_ALLOWED, VIDEO_EXTENSIONS, UNREADABLE_WARN, check_readable, is_video,
                         video_info)
 from core.version import VERSION
 from core.video_setup import OBJECT_TEST, VideoSetup
-from core.asr import (ASR_TEST, asr_summary, is_motion_file, load_motion, make_asr_job,
+from core.asr import (ASR_TEST, HABITUATION_VARIANT, asr_summary, is_motion_file, load_motion, make_asr_job,
                       real_frame_rate, trial_table)
 from core.plotting import aligned_figure, level_figure, motion_figure
 from core.objects import (distance_px, load_scoring, object_metrics, scoring_table,
-                          trial_summary)
+                          trial_info, trial_summary)
 from core.metrics import _bin_ranges as bin_ranges
 from core.tracking import TrackingParams
 from core.track_run import TrackRunner, existing_output, make_job
@@ -93,8 +93,9 @@ from region_dialog import RegionDialog
 from setup_window import SetupWindow, use_default_length
 from review_panel import ReviewPanel
 from core import info_file
-from core.info import (APP_NAME, TrialInfo, apply_choice, arena_draft, differences,
-                       fill_blanks, find_info, info_for_output, name_date, with_animal)
+from core.info import (APP_NAME, DAY_COLUMNS, TrialInfo, apply_choice, arena_draft, differences,
+                       fill_blanks, find_info, follow_day, info_for_output, name_date,
+                       with_animal)
 from info_dialog import ask_animal, show_missing_info
 from dialogs import (ask_choice, ask_side_by_side, ask_yes_no, show_error, show_info,
                      show_warning)
@@ -524,7 +525,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self._setting_row(self.asr_bar, 2, "Baseline window (ms)", self.asr_baseline_entry)
         self.asr_block_var = tk.StringVar(value=str(c["asr_block_trials"]))
         self.asr_block_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_block_var, width=6)
-        self._setting_row(self.asr_bar, 3, "Habituation block (trials)", self.asr_block_entry)
+        self._setting_row(self.asr_bar, 3, "Short-term habituation block (trials)",
+                          self.asr_block_entry)
         self.asr_sd_var = tk.StringVar(value=f"{c['asr_threshold_sd']:g}")
         self.asr_sd_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_sd_var, width=6)
         self._setting_row(self.asr_bar, 4, "Threshold criterion (SD)", self.asr_sd_entry)
@@ -540,8 +542,10 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 "Locks when you click Analyze.")
         Tooltip(self.asr_baseline_entry, "How long before each stimulus to measure movement "
                 "(before the prepulse, on prepulse+pulse trials). Locks when you click Analyze.")
-        Tooltip(self.asr_block_entry, "Pulse-alone trials per block, for habituation (first "
-                "block vs last). Locks when you click Analyze.")
+        Tooltip(self.asr_block_entry, "Pulse-alone trials per block, for short-term "
+                "habituation within one session (first block vs last). Only reported for a "
+                "habituation session (the recording's info file says Startle Habituation). "
+                "Locks when you click Analyze.")
         self.asr_threshold_var.trace_add("write", lambda *_: self._on_asr_threshold())
 
         # Tracking settings, shown when videos are listed. They're changed in
@@ -802,7 +806,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         # Summary tab (column-group checkboxes over a Treeview table). Clicking
         # a row selects that file in the file list.
         self.tab_summary = ttk.Frame(self.nb)
-        self.nb.add(self.tab_summary, text="Summary")
+        self.nb.add(self.tab_summary, text="Data Summary")
         self._build_summary_controls(self.tab_summary)
         self.summary_tree = self._make_tree(self.tab_summary)
 
@@ -1176,9 +1180,10 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         analyzed). This is also what Export saves for the Summary."""
         rows = []
         for e in self.files:
-            # The animal's ID shows as soon as the file is added (blank when
-            # no info file says whose video it is).
-            row = {"File": e.label, "animal_id": e.info.animal_id if e.info is not None else "",
+            # The animal's ID, trial day and session show as soon as the file
+            # is added (blank when no info file says).
+            lead = with_animal({"File": e.label}, e.info)
+            row = {**{k: lead[k] for k in ("File", "animal_id", *DAY_COLUMNS)},
                    "Status": ANALYZED if e.analyzed else NOT_ANALYZED}
             if e.analyzed:
                 row.update({k: v for k, v in e.summary.items() if k != "File"})
@@ -1193,7 +1198,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             return
         groups = summary_column_groups([c for c in df.columns if c != "Status"],
                                        self.test_var.get())
-        cols = ["File", "animal_id", "Status"]
+        # (whose row it is, and which day and session of the test)
+        cols = ["File", "animal_id", *DAY_COLUMNS, "Status"]
         for key, var in self.group_vars.items():
             if var.get():
                 cols += groups.get(key, [])  # group order, so Details stay last
@@ -2178,8 +2184,9 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                          f"The information for {e.label} wasn't saved.\n\n{exc}")
             return None
         e.info = find_info(video) if e.video is not None else info_for_output(e.path)
-        if e.analyzed:          # the row carries the animal's ID
-            e.summary = with_animal(e.summary, e.info)
+        self._follow_day(e)
+        if e.analyzed:          # the row carries the animal's ID, trial day and session
+            e.summary = with_animal(e.summary, e.info, day=self._own_day(e))
         return f"animal: {values.get('animal_id') or 'information added'}"
 
     def _can_type_info(self, e) -> bool:
@@ -2244,13 +2251,19 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         v = e.video
         if v is None or not (v.steps_done or v.has_drawn_work()):
             return
-        setup = v.to_saved()
+        self._follow_day(e)
+        setup = v.to_saved(self.test_var.get())
         saved = e.info.saved if e.info is not None else {}
         if saved.get("setup") == setup:
             return
         update = {"test": self.test_var.get(), "setup": setup, "version": VERSION}
-        if e.data is not None or (isinstance(saved.get("files"), dict)
-                                  and saved["files"].get("tracking")):
+        # (outside Object Recognition the trial day and phase are no part of
+        # what was tracked, so a change to them alone isn't a new setup)
+        apart = () if self.test_var.get() == OBJECT_TEST else ("trial_day", "trial_phase")
+        drawn = lambda d: {k: x for k, x in (d or {}).items() if k not in apart}  # noqa: E731
+        if (drawn(saved.get("setup")) != drawn(setup)
+                and (e.data is not None or (isinstance(saved.get("files"), dict)
+                                            and saved["files"].get("tracking")))):
             update["setup_changed_since_tracking"] = True
         label = e.info.camera.get("label") if e.info is not None and e.info.renamed else None
         try:
@@ -2262,6 +2275,22 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             e.info = find_info(e.path)
         else:
             self._reread_info(e)
+
+    def _own_day(self, e) -> str | None:
+        """An object trial's day as set in Track Tamer (kept with its tracking
+        file); None for the other tests, whose day is the info file's."""
+        if e.data is None or (e.summary or {}).get("Test") != OBJECT_TEST:
+            return None
+        return trial_info(e.data)[0]
+
+    def _follow_day(self, e) -> None:
+        """Keep the trial day in a video's setup the one its info file gives
+        (the recording app's, or typed under Animal information). Object
+        Recognition is left alone: there the day is also set in Track Tamer,
+        a blank is filled when the video is added, and a disagreement is the
+        experimenter's to settle (`_use_info`)."""
+        if e.video is not None and e.info is not None and self.test_var.get() != OBJECT_TEST:
+            follow_day(e.info, e.video)
 
     def _reread_info(self, e) -> None:
         """Read a video's info file again after Track Tamer added to it."""
@@ -2295,6 +2324,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         test = self.test_var.get()
         rows: dict[tuple, list] = {}        # (what, label, setup, info file) -> videos
         for e in have:
+            self._follow_day(e)         # (a video that came back with its setup too)
             if e.video is None or e.restored:
                 continue
             fill_blanks(e.info, e.video)
@@ -2709,6 +2739,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                                 window_size=int(c["window_size"]),
                                 window_weight=float(c["window_weight"]))
         try:
+            for g in ready:
+                self._follow_day(g[0])
             if test == ASR_TEST:
                 jobs = [make_asr_job(g[0].video, float(c["asr_threshold"])) for g in ready]
             else:
@@ -3134,9 +3166,12 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         test = self.test_var.get()
         if test == ASR_TEST:
             c = self.config_data
+            # Short-term habituation only for a habituation session (its info
+            # file's variant says so).
+            habituation = e.info is not None and e.info.variant == HABITUATION_VARIANT
             summary, e.bins = asr_summary(e.data, float(c["asr_startle_ms"]),
                                           float(c["asr_baseline_ms"]), int(c["asr_block_trials"]),
-                                          float(c["asr_threshold_sd"]))
+                                          float(c["asr_threshold_sd"]), habituation)
             e.summary = with_animal(order_summary(summary, test), e.info)
             return
         min_entry = self.config_data["min_entry_frames"]
@@ -3192,7 +3227,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             settings["ZoneDistance_cm"] = zone
         summary.update(settings)
         e.summary = with_animal(
-            order_summary(drop_duplicates(summary, roles, test), test), e.info)
+            order_summary(drop_duplicates(summary, roles, test), test), e.info,
+            day=summary.get("trial_day"))
         # The test's measures per bin go after the general bin columns.
         if test_bins is not None and not bins.empty:
             bins = bins.merge(test_bins, on="Bin", how="left")
@@ -3230,7 +3266,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         """The video's setup, for the export's Setup sheet: as it is now for
         a video in the list, else as its info file has it."""
         if e.video is not None:
-            return e.video.to_saved()
+            self._follow_day(e)
+            return e.video.to_saved(self.test_var.get())
         saved = e.info.saved.get("setup") if e.info is not None else None
         return saved if isinstance(saved, dict) else None
 
@@ -3254,6 +3291,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         if video is None:
             return
         label = e.info.camera.get("label") if e.info is not None and e.info.renamed else None
+        names = (self.STARTLE_FILE_NAMES if sections["Analysis"].get("Test") == ASR_TEST
+                 else self.FILE_NAMES)
         try:
             info_file.write(video, {
                 "analysis": {"exported": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -3261,7 +3300,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                              **{k: plain_value(v) for k, v in sections["Analysis"].items()},
                              **{k: plain_value(v)
                                 for k, v in sections.get("Time Bins", {}).items()}},
-                "files": {name: os.path.basename(path) for name, path in out.items()},
+                "files": {names[name]: os.path.basename(path) for name, path in out.items()},
             }, label)
         except OSError:
             traceback.print_exc()       # the results themselves were written
@@ -3279,13 +3318,16 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                            "Exported": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                            "Track Tamer version": VERSION},
                 "Analysis": {"Test": test,
-                             "Intensity threshold": row.get("IntensityThreshold"),
+                             "Intensity threshold (grey levels, 0-255)":
+                                 row.get("IntensityThreshold_graylevels"),
                              "Startle window (ms)": row.get("StartleWindow_ms"),
                              "Baseline window (ms)": row.get("BaselineWindow_ms"),
-                             "Habituation block (trials)": row.get("HabituationBlock_trials"),
+                             **({"Short-term habituation block (trials)":
+                                 row["ShortTermHabituationBlock_trials"]}
+                                if "ShortTermHabituationBlock_trials" in row else {}),
                              "Threshold criterion (SD)": row.get("ThresholdCriterion_SD"),
                              "Stimuli from": row.get("StimulusSource"),
-                             "Pixels analyzed": row.get("AnalyzedPixels"),
+                             "Pixels analyzed": row.get("AnalyzedPixels_px"),
                              "Frames": row.get("Frames"),
                              "Unreadable frames": row.get("UnreadableFrames"),
                              "Repeated frames": row.get("RepeatedFrames")},
@@ -3424,14 +3466,21 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             self.export_text.configure(text="Stopping after this file…")
 
     def _export_paths(self, e) -> dict[str, str]:
-        """Where a file's workbook and two images go (beside the file)."""
+        """Where a file's workbook and images go: beside the file, named
+        after its video, so every test's analysis file is
+        `<video name>_analysis.xlsx` whether the video or its tracking file
+        was added. ("path" and "heatmap" are the two plot tabs; for startle
+        they hold the trace and the aligned trials.)"""
         if self.test_var.get() != ASR_TEST:
             return output_paths(e.path)
-        base = os.path.splitext(e.path)[0]
-        if base.endswith("_MotionIndex"):
-            base = base[: -len("_MotionIndex")]
+        base = output_base(e.path)
         return {"analysis": base + "_analysis.xlsx", "path": base + "_trace.png",
                 "heatmap": base + "_aligned.png", "levels": base + "_levels.png"}
+
+    # What each exported file is called in the video's info file.
+    FILE_NAMES = {"analysis": "analysis", "path": "path", "heatmap": "heatmap", "levels": "levels"}
+    STARTLE_FILE_NAMES = {"analysis": "analysis", "path": "trace", "heatmap": "aligned",
+                          "levels": "levels"}
 
     def export(self) -> None:
         """Write each selected, analyzed file's _analysis.xlsx, _path.png, and
@@ -3450,10 +3499,12 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                       "The selected files haven't been analyzed. Click Analyze "
                       "first, then export.")
             return
-        # A file added twice writes to the same names, so export it once.
+        # A file added twice writes to the same names, so export it once; so
+        # do a video and its own tracking file, both in the list (the same
+        # results either way).
         seen, unique = set(), []
         for e in targets:
-            key = self._same_file_key(e.path)
+            key = self._same_file_key(e.data.path)
             if key not in seen:
                 seen.add(key)
                 unique.append(e)
@@ -3495,7 +3546,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                                                     self._fps_locked())
                                       if self.test_var.get() == OBJECT_TEST else None),
                         experiment=settings_table(self._experiment_sections(e), "Field"),
-                        setup=(settings_table(setup_sections(setup)) if setup else None),
+                        setup=(settings_table(setup_sections(setup, startle)) if setup
+                               else None),
                     )
                     save_figure(self._path_fig(e, plot), out["path"])
                     save_figure(self._heat_fig(e, plot), out["heatmap"])

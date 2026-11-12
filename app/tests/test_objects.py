@@ -109,7 +109,7 @@ try:
 
     t = trial_summary(d, s, 1.0, 2.0)
     check("summary: day, phase, novel object, visits not reviewed, zone distance",
-          t["OR_Day"] == "2" and t["OR_Phase"] == "Test"
+          t["trial_day"] == "2" and "OR_Day" not in t and t["OR_Phase"] == "Test"
           and t["OR_NovelObjects"] == "object 2 (novel)"
           and t["OR_VisitsNotReviewed"] == 0 and t["OR_ZoneDistance"] == "2 cm")
     s2 = Scoring()

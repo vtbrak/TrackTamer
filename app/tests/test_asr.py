@@ -64,26 +64,26 @@ def fake(stimuli):
 t = trial_table(fake([{"frame": 103, "type": "pulse"}]))
 r = t.iloc[0]
 check("baseline is the 2 frames up to the stimulus; startle is the 2 frames after it",
-      r["motion.index.before"] == 3 and r["motion.index.after"] == 9)
+      r["motion.index.before_pct"] == 3 and r["motion.index.after_pct"] == 9)
 check("amplitude = startle peak - baseline peak",
-      r["Startle amplitude"] == 6)
+      r["Startle amplitude_pct"] == 6)
 check("peak frame, its time, its pixels and reaction time from the stimulus",
-      r["FrameNo"] == 104 and r["Time.startle"] == 0.4 and r["Pixel.change"] == 90
-      and r["ReactionTime"] == 100)
+      r["FrameNo"] == 104 and r["Time.startle_s"] == 0.4 and r["Pixel.change_px"] == 90
+      and r["ReactionTime_ms"] == 100)
 check("no Direction column (left out for now)", "Direction" not in t.columns)
 t = trial_table(fake([{"frame": 103, "type": "pulse", "video_time_s": 0.25}]))
 check("a measured stimulus time sets the windows (0.25 s: startle is 0.3-0.45)",
-      t.iloc[0]["motion.index.after"] == 9 and t.iloc[0]["Stimulus_s"] == 0.25)
+      t.iloc[0]["motion.index.after_pct"] == 9 and t.iloc[0]["Stimulus_s"] == 0.25)
 t = trial_table(fake([{"frame": 106, "type": "prepulse+pulse", "interval_ms": 200}]))
 check("prepulse+pulse: the baseline ends at the prepulse (frames 103-104 here), not the pulse",
-      t.iloc[0]["motion.index.before"] == 9 and t.iloc[0]["motion.index.after"] == 1)
+      t.iloc[0]["motion.index.before_pct"] == 9 and t.iloc[0]["motion.index.after_pct"] == 1)
 t = trial_table(fake([{"frame": 106, "type": "pulse"}]))
 check("pulse alone: the baseline is right before the pulse",
-      t.iloc[0]["motion.index.before"] == 7)
+      t.iloc[0]["motion.index.before_pct"] == 7)
 copies = df.copy(); copies["Repeated"] = [i == 4 for i in range(12)]
 t = trial_table(TrackingData("x", copies, {"Stimuli": json.dumps([{"frame": 103}])}, []))
 check("a repeated frame can't be the peak, and the trial says so",
-      t.iloc[0]["motion.index.after"] == 5 and "1 repeated" in t.iloc[0]["Note"])
+      t.iloc[0]["motion.index.after_pct"] == 5 and "1 repeated" in t.iloc[0]["Note"])
 from core.asr import asr_summary, real_frame_rate
 row, _ = asr_summary(TrackingData("x", copies, {"Stimuli": json.dumps([{"frame": 103}])}, []))
 check("the Summary counts repeated frames; a few repeats aren't flagged",
@@ -100,45 +100,74 @@ row, _ = asr_summary(TrackingData("x", half, {"Stimuli": json.dumps([{"frame": 1
 check("exactly half repeated isn't 'most'", real_frame_rate(row) is None)
 t = trial_table(fake([{"frame": 100}, {"frame": 111}, {"frame": 500}]))
 check("windows outside the recording leave the amplitude blank and say why",
-      pd.isna(t["Startle amplitude"]).all()
+      pd.isna(t["Startle amplitude_pct"]).all()
       and "baseline" in t["Note"][0] and "startle" in t["Note"][1] and "outside" in t["Note"][2])
 bad = df.copy(); bad.loc[5, "MotionIndex_pct"] = np.nan; bad.loc[5, "Frame_Unreadable"] = True
 one = trial_table(TrackingData("x", bad, {"Stimuli": json.dumps([{"frame": 103}])}, []))
 check("an unreadable frame is noted and left out of the peak",
-      "1 unreadable" in one["Note"][0] and one["motion.index.after"][0] == 9)
+      "1 unreadable" in one["Note"][0] and one["motion.index.after_pct"][0] == 9)
 check("an unreadable frame in a window is flagged, and the amplitude is still worked out",
-      not pd.isna(one["Startle amplitude"][0])
-      and one["Startle amplitude"][0] == one["motion.index.after"][0] - one["motion.index.before"][0])
+      not pd.isna(one["Startle amplitude_pct"][0])
+      and one["Startle amplitude_pct"][0] == one["motion.index.after_pct"][0] - one["motion.index.before_pct"][0])
 
 # Session measures from the shown amplitudes.
 rows = [("pulse", None, None, 10), ("pulse", None, None, 8), ("pulse", None, None, 6),
         ("pulse", None, None, 4), ("prepulse+pulse", 74, 100, 3), ("prepulse+pulse", 74, 100, 5),
         ("prepulse+pulse", 82, 100, 2), ("none", None, None, 0.5)]
-trials = pd.DataFrame(rows, columns=["Type", "Prepulse_dB", "Interval_ms", "Startle amplitude"])
-m = session_measures(trials, block_trials=2)
-check("mean, median and count per trial type",
-      m["ASR_Mean_pulse"] == 7 and m["ASR_Median_pulse"] == 7 and m["ASR_N_pulse"] == 4
-      and m["ASR_Mean_prepulse+pulse"] == round(10 / 3, 4) and m["ASR_Mean_none"] == 0.5)
+trials = pd.DataFrame(rows, columns=["Type", "Prepulse_dB", "Interval_ms", "Startle amplitude_pct"])
+m = session_measures(trials, block_trials=2, habituation=True)
+check("mean, median and count per trial type, each amplitude with its unit",
+      m["ASR_Mean_pulse_pct"] == 7 and m["ASR_Median_pulse_pct"] == 7 and m["ASR_N_pulse"] == 4
+      and m["ASR_Mean_prepulse+pulse_pct"] == round(10 / 3, 4) and m["ASR_Mean_none_pct"] == 0.5)
+check("each trial type's count, mean and median sit together, pulse-alone first",
+      list(m)[:12] == ["ASR_Trials", "ASR_TrialsUsed", "ASR_TrialsNotUsed",
+                       "ASR_N_pulse", "ASR_Mean_pulse_pct", "ASR_Median_pulse_pct",
+                       "ASR_N_prepulse+pulse", "ASR_Mean_prepulse+pulse_pct",
+                       "ASR_Median_prepulse+pulse_pct",
+                       "ASR_N_none", "ASR_Mean_none_pct", "ASR_Median_none_pct"])
 check("% PPI from startle amplitudes, overall and per level and interval",
       m["ASR_PPI_Overall_pct"] == round(100 * (1 - round(10 / 3, 4) / 7), 1)
       and m["ASR_PPI_74dB_100ms_pct"] == round(100 * (1 - 4 / 7), 1)
       and m["ASR_PPI_82dB_100ms_pct"] == round(100 * (1 - 2 / 7), 1))
-check("habituation from pulse-alone blocks: first vs last",
-      m["ASR_Block1_Mean"] == 9 and m["ASR_Block2_Mean"] == 5
-      and m["ASR_Habituation_pct"] == round(100 * (1 - 5 / 9), 1))
-short = session_measures(trials, block_trials=3)
+check("short-term habituation from pulse-alone blocks: first vs last",
+      m["ASR_ShortTermHabituation_Block1_Mean_pct"] == 9
+      and m["ASR_ShortTermHabituation_Block2_Mean_pct"] == 5
+      and m["ASR_ShortTermHabituation_pct"] == round(100 * (1 - 5 / 9), 1)
+      and list(m)[-3:] == ["ASR_ShortTermHabituation_Block1_Mean_pct",
+                           "ASR_ShortTermHabituation_Block2_Mean_pct",
+                           "ASR_ShortTermHabituation_pct"])
+check("it's only reported for a habituation session",
+      not any("Habituation" in k or "Block" in k for k in session_measures(trials, block_trials=2)))
+short = session_measures(trials, block_trials=3, habituation=True)
 check("a shorter last block is left out; one block gives no habituation",
-      "ASR_Block2_Mean" not in short and "ASR_Habituation_pct" not in short)
+      "ASR_ShortTermHabituation_Block2_Mean_pct" not in short
+      and "ASR_ShortTermHabituation_pct" not in short)
 freq = pd.DataFrame({"Type": ["pulse"] * 3, "Pulse_kHz": [4.0, 4.0, 12.0], "Pulse_Kind": ["tone"] * 3,
                      "Prepulse_dB": [None] * 3, "Interval_ms": [None] * 3,
-                     "Startle amplitude": [2.0, 4.0, 9.0]})
+                     "Startle amplitude_pct": [2.0, 4.0, 9.0]})
 f = session_measures(freq)
-check("mean per pulse frequency as well as overall",
-      f["ASR_Mean_pulse_4kHz"] == 3 and f["ASR_N_pulse_12kHz"] == 1 and f["ASR_Mean_pulse"] == 5)
+check("count and mean per pulse frequency as well as overall, kept together",
+      f["ASR_Mean_pulse_4kHz_pct"] == 3 and f["ASR_N_pulse_12kHz"] == 1 and f["ASR_Mean_pulse_pct"] == 5
+      and list(f)[3:10] == ["ASR_N_pulse", "ASR_Mean_pulse_pct", "ASR_Median_pulse_pct",
+                            "ASR_N_pulse_4kHz", "ASR_Mean_pulse_4kHz_pct",
+                            "ASR_N_pulse_12kHz", "ASR_Mean_pulse_12kHz_pct"])
+one_freq = session_measures(freq.iloc[:2])
+check("the frequency columns are there with a single frequency too",
+      one_freq["ASR_Mean_pulse_4kHz_pct"] == one_freq["ASR_Mean_pulse_pct"] == 3)
 check("no pulse-alone trials: no PPI",
       "ASR_PPI_Overall_pct" not in session_measures(trials[trials["Type"] != "pulse"]))
+plain = trial_table(fake([{"frame": 103, "type": "pulse"}]))
+ppi_t = trial_table(fake([{"frame": 103, "type": "pulse"},
+                          {"frame": 106, "type": "prepulse+pulse", "prepulse_db": 74, "interval_ms": 100}]))
+check("the Trials table has the prepulse headings only when the session has prepulse trials",
+      not {"Prepulse_dB", "Interval_ms"} & set(plain.columns)
+      and {"Prepulse_dB", "Interval_ms"} <= set(ppi_t.columns))
+check("every Trials heading that is a measurement carries its unit",
+      list(plain.columns) == ["Trial", "Type", "Pulse_kHz", "Pulse_Kind", "Pulse_dB",
+                              "Stimulus_Frame", "Stimulus_s", "Pixel.change_px",
+                              "motion.index.before_pct", "motion.index.after_pct", "FrameNo",
+                              "Time.startle_s", "ReactionTime_ms", "Startle amplitude_pct", "Note"])
 
-# Typed frames and the recording app's files.
 # Startle by sound level (sessions that step through levels).
 from core.asr import (TRIAL_COLUMNS, baseline_criterion, level_curves, level_measures,
                       startle_threshold)
@@ -151,18 +180,18 @@ def session(spec, quiet=0):
             before = (0.5, 0.6, 0.7)[n % 3]; n += 1
             out.append({"Type": "pulse", "Pulse_kHz": sound if sound != "noise" else None,
                         "Pulse_Kind": "noise" if sound == "noise" else "tone", "Pulse_dB": db,
-                        "motion.index.before": before, "motion.index.after": peak,
-                        "Startle amplitude": round(peak - before, 4)})
+                        "motion.index.before_pct": before, "motion.index.after_pct": peak,
+                        "Startle amplitude_pct": round(peak - before, 4)})
     for _ in range(quiet):
-        out.append({"Type": "none", "motion.index.before": 0.6, "motion.index.after": 0.65,
-                    "Startle amplitude": 0.05})
+        out.append({"Type": "none", "motion.index.before_pct": 0.6, "motion.index.after_pct": 0.65,
+                    "Startle amplitude_pct": 0.05})
     return pd.DataFrame(out, columns=TRIAL_COLUMNS)
 
 io = session([("noise", 70, [0.6, 0.7, 0.6]), ("noise", 80, [0.9, 1.0, 0.8]),
               ("noise", 90, [0.6, 0.5, 0.7]), ("noise", 100, [3.0, 3.6, 3.3]),
               ("noise", 110, [5.0, 5.6, 5.3]), ("noise", 120, [4.0, 4.6, 4.3])], quiet=3)
 crit = baseline_criterion(io)
-before = io["motion.index.before"].to_numpy(float)
+before = io["motion.index.before_pct"].to_numpy(float)
 check("the criterion is the mean of every trial's baseline peak plus 2 SD of them",
       abs(crit - (before.mean() + 2 * before.std(ddof=1))) < 1e-9
       and abs(baseline_criterion(io, 3) - (before.mean() + 3 * before.std(ddof=1))) < 1e-9
@@ -180,20 +209,24 @@ check("no threshold when the loudest level doesn't respond, or there's no criter
 m = level_measures(io)
 check("the Summary gets the mean and count at each level, the threshold, and the largest "
       "mean with its level",
-      [k for k in m if k.startswith("ASR_Mean_")] == [f"ASR_Mean_pulse_{d}dB" for d in
+      [k for k in m if k.startswith("ASR_Mean_")] == [f"ASR_Mean_pulse_{d}dB_pct" for d in
                                                       (70, 80, 90, 100, 110, 120)]
       and m["ASR_N_pulse_100dB"] == 3 and m["ASR_Threshold_dB"] == 100
-      and m["ASR_Max_pulse_dB"] == 110 and abs(m["ASR_Max_pulse"] - 4.7) < 0.2
+      and m["ASR_Max_pulse_dB"] == 110 and abs(m["ASR_Max_pulse_pct"] - 4.7) < 0.2
       and abs(m["ASR_ThresholdCriterion_pct"] - round(crit, 4)) < 1e-9)
 whole = session_measures(io)
 check("the no-stimulus trials stay their own column beside the levels (nothing subtracted)",
-      whole["ASR_Mean_none"] == 0.05 and whole["ASR_N_none"] == 3
-      and whole["ASR_Mean_pulse_100dB"] == m["ASR_Mean_pulse_100dB"])
+      whole["ASR_Mean_none_pct"] == 0.05 and whole["ASR_N_none"] == 3
+      and whole["ASR_Mean_pulse_100dB_pct"] == m["ASR_Mean_pulse_100dB_pct"])
 from core.metrics import key_measures
 keys = key_measures("Acoustic Startle Response", columns=whole)
-check("the threshold and largest response come right after the means in the key measures",
-      keys.index("ASR_Threshold_dB") == keys.index("ASR_Mean_pulse_120dB") + 1
-      and keys[keys.index("ASR_Threshold_dB") + 1:][:2] == ["ASR_Max_pulse", "ASR_Max_pulse_dB"])
+check("per level the count sits beside its mean, and the criterion, threshold and largest "
+      "response follow the levels, before the no-stimulus trials",
+      keys[keys.index("ASR_N_pulse_100dB") + 1] == "ASR_Mean_pulse_100dB_pct"
+      and keys[keys.index("ASR_Mean_pulse_120dB_pct") + 1:][:4]
+      == ["ASR_ThresholdCriterion_pct", "ASR_Threshold_dB", "ASR_Max_pulse_pct", "ASR_Max_pulse_dB"]
+      and keys.index("ASR_N_none") > keys.index("ASR_Max_pulse_dB")
+      and keys == [k for k in whole if k.startswith("ASR_")])
 check("a higher criterion can move the threshold up",
       level_measures(io, threshold_sd=40)["ASR_Threshold_dB"] > 100
       or pd.isna(level_measures(io, threshold_sd=40)["ASR_Threshold_dB"]))
@@ -206,7 +239,7 @@ mb = level_measures(both)
 check("frequency and level both varying: each pair, each level pooled, and a threshold and "
       "largest response for each sound",
       mb["ASR_N_pulse_90dB"] == 4 and mb["ASR_N_pulse_8kHz_90dB"] == 2
-      and abs(mb["ASR_Mean_pulse_16kHz_110dB"] - 1.5) < 0.3
+      and abs(mb["ASR_Mean_pulse_16kHz_110dB_pct"] - 1.5) < 0.3
       and mb["ASR_Threshold_8kHz_dB"] == 90 and mb["ASR_Threshold_16kHz_dB"] == 110
       and mb["ASR_Max_pulse_8kHz_dB"] == 110 and "ASR_Threshold_dB" not in mb)
 from core.plotting import level_figure
@@ -277,7 +310,8 @@ try:
           and back.name == os.path.basename(video) and "Total_px" in back.df.columns)
     s, tt = asr_summary(back)
     check("summary row and trials from the file", s["ASR_Trials"] == 1 and len(tt) == 1
-          and s["IntensityThreshold"] == 15 and tt["Pulse_dB"][0] == 120)
+          and s["IntensityThreshold_graylevels"] == 15 and tt["Pulse_dB"][0] == 120
+          and "ShortTermHabituationBlock_trials" not in s)
     other = os.path.join(tmp, "plain.mp4"); shutil.copy(ASR_CLIP, other)
     data, _ = run_asr_job(AsrJob(other, Prep(), 0, 101, None, 15.0, 30.0, 0, [50]))
     from core.asr import file_stimuli
@@ -299,7 +333,7 @@ try:
     pd.read_csv(os.path.join(tmp, "plain_MotionIndex.csv")).to_csv(lone, index=False)
     alone = load_motion(lone)
     check("a slim motion file without its info file still loads (no stimuli, no pixel count)",
-          file_stimuli(alone) == [] and asr_summary(alone)[0]["AnalyzedPixels"] is None)
+          file_stimuli(alone) == [] and asr_summary(alone)[0]["AnalyzedPixels_px"] is None)
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 

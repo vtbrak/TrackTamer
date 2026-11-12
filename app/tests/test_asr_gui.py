@@ -58,7 +58,7 @@ check("the Startle by Level tab shows for startle only, with the threshold crite
       and bool(app.asr_sd_entry.winfo_manager()))
 check("startle settings and tabs replace the others",
       bool(app.asr_bar.winfo_manager()) and not app.entries_section.winfo_manager()
-      and tabs[:4] == ["Summary", "Trials", "Motion Trace", "Aligned Trials"]
+      and tabs[:4] == ["Data Summary", "Trials", "Motion Trace", "Aligned Trials"]
       and not app.path_col.winfo_manager())
 app.add_files([CLIP]); app.update()
 e = app.files[0]; v = e.video
@@ -95,16 +95,22 @@ log.clear(); app.analyze(); app.update()
 s = e.summary
 check("Analyze fills the Summary and trials, with no frame-rate prompt",
       e.analyzed and s["ASR_Trials"] == 1 and s["ASR_TrialsUsed"] == 1 and len(e.bins) == 1
-      and "ASR_Mean_pulse" in s and not log)
+      and "ASR_Mean_pulse_pct" in s and not log
+      and not any("Habituation" in k for k in s)
+      and not {"Prepulse_dB", "Interval_ms"} & set(e.bins.columns))
 r = e.bins.iloc[0]
 check("the paper clip's startle: peak on the frame after the stimulus, amplitude from the two windows",
-      r["FrameNo"] == 51 and r["motion.index.after"] > r["motion.index.before"]
-      and abs(r["Startle amplitude"] - (r["motion.index.after"] - r["motion.index.before"])) < 1e-3)
-print(f"   after {r['motion.index.after']}  before {r['motion.index.before']}  amplitude {r['Startle amplitude']}  reaction {r['ReactionTime']} ms")
+      r["FrameNo"] == 51 and r["motion.index.after_pct"] > r["motion.index.before_pct"]
+      and abs(r["Startle amplitude_pct"] - (r["motion.index.after_pct"] - r["motion.index.before_pct"])) < 1e-3)
+print(f"   after {r['motion.index.after_pct']}  before {r['motion.index.before_pct']}  amplitude {r['Startle amplitude_pct']}  reaction {r['ReactionTime_ms']} ms")
+check("a startle row says which day and session it is (blank here: the clip has no info file)",
+      list(s)[:4] == ["File", "animal_id", "trial_day", "session_number"] and s["trial_day"] == ""
+      and list(app.summary_tree["columns"])[:5] == ["File", "animal_id", "trial_day",
+                                                    "session_number", "Status"])
 check("Summary shows the key measures by default",
-      {"ASR_Trials", "ASR_Mean_pulse"} <= set(app.summary_tree["columns"]))
+      {"ASR_Trials", "ASR_N_pulse", "ASR_Mean_pulse_pct"} <= set(app.summary_tree["columns"]))
 check("Trials tab lists the trial with your headings",
-      "Startle amplitude" in app.bins_tree["columns"] and "Direction" not in app.bins_tree["columns"]
+      "Startle amplitude_pct" in app.bins_tree["columns"] and "Direction" not in app.bins_tree["columns"]
       and len(app.bins_tree.get_children()) == 1 and "1 trial" in app.bins_note.get())
 # The startles listed in the Review tab, jumped to in the playback window.
 from core.asr import AsrJob, run_asr_job, trial_table
@@ -156,21 +162,36 @@ check("export writes the workbook and three images",
        "clip_MotionIndex.csv"} <= set(files)
       and "Export finished" in log)
 sheets = pd.read_excel(os.path.join(tmp, "clip_analysis.xlsx"), sheet_name=None)
-check("workbook has Experiment, Summary, Trials, Settings and Setup",
-      list(sheets) == ["Experiment", "Summary", "Trials", "Settings", "Setup"]
-      and "Startle amplitude" in sheets["Trials"])
+check("workbook has Experiment, Data Summary, Trials, Settings and Setup",
+      list(sheets) == ["Experiment", "Data Summary", "Trials", "Settings", "Setup"]
+      and "Startle amplitude_pct" in sheets["Trials"])
 import json
 saved = json.load(open(os.path.join(tmp, "clip_info.json")))["cameras"][0]
 check("a video with no info file gets one, with the startle setup and the typed stimuli",
       saved["video"] == "clip.mp4" and saved["track_tamer"]["test"] == "Acoustic Startle Response"
       and saved["track_tamer"]["setup"]["stimulus_frames"] == [50]
       and saved["track_tamer"]["files"]["tracking"] == "clip_MotionIndex.csv"
-      and saved["track_tamer"]["files"]["analysis"] == "clip_analysis.xlsx")
+      and saved["track_tamer"]["files"]["analysis"] == "clip_analysis.xlsx"
+      and saved["track_tamer"]["files"]["trace"] == "clip_trace.png"
+      and saved["track_tamer"]["files"]["aligned"] == "clip_aligned.png"
+      and not {"path", "heatmap"} & set(saved["track_tamer"]["files"]))
+check("a startle setup is saved with what startle uses (no regions, scale or objects), and "
+      "the trial day and phase as every test's is",
+      set(saved["track_tamer"]["setup"]) == {"frame_size", "start_frame", "end_frame", "length_s",
+                                             "end_placed", "crop", "exclusions",
+                                             "stimulus_frames", "steps_done", "trial_day",
+                                             "trial_phase"})
+check("and its Setup sheet lists the session, crop, exclusions and stimuli only",
+      list(sheets["Setup"]["Section"].drop_duplicates())
+      == ["Session", "Crop", "Exclusions", "Stimuli (typed)"])
 setup_rows = dict(zip(sheets["Setup"]["Setting"], sheets["Setup"]["Value"]))
 check("the Setup sheet lists the typed stimulus frames", str(setup_rows["Video frames"]) == "50")
 got = dict(zip(sheets["Settings"]["Setting"], sheets["Settings"]["Value"]))
 check("Settings records the threshold and windows",
-      float(got["Intensity threshold"]) == 15 and float(got["Startle window (ms)"]) == 200
+      float(got["Intensity threshold (grey levels, 0-255)"]) == 15
+      and float(got["Startle window (ms)"]) == 200
+      and "Short-term habituation block (trials)" not in got
+      and list(sheets["Settings"]["Setting"]).count("Repeated frames") == 1
       and float(got["Threshold criterion (SD)"]) == 2
       and got["Stimuli from"] == "typed in")
 app.fig_dump = (app._path_fig(e, app._plot_settings()), app._heat_fig(e, app._plot_settings()))

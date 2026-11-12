@@ -87,14 +87,21 @@ arena.
 Every analyzed row records the settings that produced it (test, entry rule,
 and the Open Field thresholds), so exported tables show how they were made.
 
-**Key measures** come first, on screen and in exports. For the Elevated
-Plus Maze they are, in order: closed/open time ratio, center time, % center
-(of the session), open-arm time, % open (of arm time), closed-arm time, %
-closed (of arm time), open entries, and closed entries. The Summary tab shows
-only these by default; tick **More test measures**, **Session basics** and the
-other boxes to add columns. Open Field shows its basics and test measures.
+**Key measures** come first. For the Elevated Plus Maze they are, in order:
+closed/open time ratio, center time, % center (of the session), open-arm
+time, % open (of arm time), closed-arm time, % closed (of arm time), open
+entries, and closed entries. The **Data Summary** tab shows only these by
+default; tick **More test measures**, **Session basics** and the other boxes
+to add columns. Open Field shows its basics and test measures.
 
-**Summary metrics** (one row per file):
+**In exported tables each group's columns sit together**, and every heading
+carries its unit (`_s`, `_cm`, `_pct`, `_dB` and so on; counts and ratios
+have none). A key measure is followed by the other numbers about the same
+thing: the plus maze's ratios, then everything about the center, the open
+arms, the closed arms; each region's time, percent and entries; each
+object's numbers.
+
+**Data Summary metrics** (one row per file):
 - Total distance (cm / px), duration, mean speed
 - Time and percent spent in each region (e.g. center / periphery, or each EPM
   arm), and entries into each region under the same entry rule as the test
@@ -148,14 +155,18 @@ recording app's `_info.json`, or you type the video frames in setup step 4.
 Frames marked as repeated are left out of the peaks, and Analyze warns when
 more than half of a video's frames are repeats (few real frames are left
 around each stimulus, so peaks and reaction times are coarse). The **Trials** tab lists
-Pixel.change, motion.index.before and .after, FrameNo, Time.startle,
-ReactionTime (ms from stimulus to peak) and Startle amplitude. The **Review**
+`Pixel.change_px`, `motion.index.before_pct` and `.after_pct` (% of pixels),
+`FrameNo`, `Time.startle_s`, `ReactionTime_ms` (from stimulus to peak) and
+`Startle amplitude_pct`; the prepulse columns appear only for sessions with
+prepulse trials. The **Review**
 tab lists every startle; click one to open the video at its stimulus, and use
 **Next trial** / **Previous trial** ([ and ]), **Go to stimulus** and **Go to
-peak** in the playback window. The Summary
-gives the mean amplitude per trial type and pulse frequency, **% PPI**
-(overall and per prepulse level) and **% habituation** (first vs last block of
-pulse-alone trials). For a session that steps through sound levels (Boom
+peak** in the playback window. The Data Summary
+gives, for each trial type, its count, mean and median amplitude, then the
+same per pulse frequency; **% PPI** (overall and per prepulse level); and,
+for a habituation session only (the recording's info file says Startle
+Habituation), **% short-term habituation** within the session (first vs last
+block of pulse-alone trials). For a session that steps through sound levels (Boom
 Box's Hearing Test or I/O) it also gives the mean amplitude at each level,
 the **startle threshold** (the lowest level from which it and every louder
 level respond: a level's mean startle-window peak above the session's
@@ -306,14 +317,18 @@ credits, the ezTrack citation, and the license.
 
 ## Exporting
 
-**Export** writes, for each selected file that has been analyzed, three
-files **next to its source CSV**, named after it, overwriting any earlier
-export:
+**Export** writes, for each selected file that has been analyzed, its
+analysis workbook and plot images **beside it**, named after its video
+(always `<video name>_analysis.xlsx`, whether you added the video or its
+tracking file), overwriting any earlier export:
 
 - `<name>_analysis.xlsx`, with these sheets:
   **Experiment** (down the page: the file, the animal and the task, as the
-  recording app saved them; blank where nothing was recorded), **Summary**
-  (the file's row: File, `animal_id`, then the measures), **Time Bins**,
+  recording app saved them; blank where nothing was recorded), **Data Summary**
+  (the file's row: File, `animal_id`, `trial_day` and `session_number` as
+  the recording app saved them (blank when it didn't), then the measures),
+  **Time Bins**
+  (**Trials** for startle),
   **Setup** (for a video set up here: the crop, each region's corners, the
   exclusion shapes and the scale as numbers, a backup of the info file), and
   **Settings** (everything used to produce the results: test, frame rate,

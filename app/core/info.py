@@ -161,6 +161,10 @@ class TrialInfo:
         return ASSAY_TESTS.get(self.assay.lower())
 
     @property
+    def variant(self) -> str:
+        return _text(self.raw.get("assay_variant"))
+
+    @property
     def animal_id(self) -> str:
         return _text(self.raw.get("animal_id"))
 
@@ -315,8 +319,8 @@ class TrialInfo:
                            ("Frame rate asked for (fps)", "fps_set"),
                            ("Frame rate measured (fps)", "fps_measured"),
                            ("Frames written", "frames"),
-                           ("Repeated frames", "repeated_frames"),
-                           ("Frame times file", "timestamps_csv")):
+                           ("Frame times file", "timestamps_csv"),
+                           ("Error reported by the recording app", "error")):
             if not _blank(cam.get(key)):
                 camera[label] = cam[key]
         settings = cam.get("camera_settings")
@@ -467,11 +471,19 @@ def differences(info: TrialInfo, test: str, setup=None) -> list[Difference]:
 
 def fill_blanks(info: TrialInfo, setup) -> None:
     """Give the setup what it doesn't have yet from the info file: the trial
-    day and phase of an object trial."""
+    day (every test has one) and the phase of an object trial."""
     if not setup.trial_day and info.trial_day:
         setup.trial_day = info.trial_day
     if not setup.trial_phase and info.phase:
         setup.trial_phase = info.phase
+
+
+def follow_day(info: TrialInfo, setup) -> None:
+    """Keep the setup's trial day the info file's. For every test but Object
+    Recognition the day can't be set in Track Tamer: it is the recording
+    app's (or typed under Animal information), so the setup's copy must
+    never differ from it."""
+    setup.trial_day = info.trial_day
 
 
 def apply_choice(info: TrialInfo, setup, what: str) -> None:
@@ -491,12 +503,32 @@ def apply_choice(info: TrialInfo, setup, what: str) -> None:
                 setup.object_kinds[name] = kind
 
 
-def with_animal(summary: dict, info: TrialInfo | None) -> dict:
-    """A Summary row with `animal_id` right after File (blank when it isn't
-    known), so every row says whose it is; the rest about the animal and the
-    task is on the workbook's Experiment sheet (user, 2026-11-11)."""
+DAY_COLUMNS = ("trial_day", "session_number")
+
+
+def with_animal(summary: dict, info: TrialInfo | None, day=None) -> dict:
+    """A Data Summary row with `animal_id`, `trial_day` and `session_number`
+    right after File, under the standard's own names and blank when not
+    known: whose row it is, and which day and session of the test. The
+    recording apps write all three for every assay, so every test's row has
+    them (user, 2026-11-12: "startle does have multi days of trial so it
+    needs to have the information that is reported from boom box"; a test
+    run over several days is put together outside the app). The rest about
+    the animal and the task is on the workbook's Experiment sheet (user,
+    2026-11-11).
+
+    `day`: the trial day in use where Track Tamer has its own (an object
+    trial's, which the experimenter can correct here); it then stands in
+    for the info file's, so a row never shows two different days."""
     first = {k: summary[k] for k in ("File",) if k in summary}
-    rest = {k: v for k, v in summary.items() if k not in first and k != "animal_id"}
+    lead = {"animal_id": info.animal_id if info is not None else ""}
+    for key in DAY_COLUMNS:
+        value = _whole(info.raw.get(key)) if info is not None else None
+        lead[key] = "" if value is None else value
+    if not _blank(day):
+        whole = _whole(day)
+        lead["trial_day"] = str(day).strip() if whole is None else whole
+    rest = {k: v for k, v in summary.items() if k not in first and k not in lead}
     if info is not None and info.repeated_frames is not None and "RepeatedFrames" not in rest:
         rest["RepeatedFrames"] = info.repeated_frames
-    return {**first, "animal_id": info.animal_id if info is not None else "", **rest}
+    return {**first, **lead, **rest}

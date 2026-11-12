@@ -103,7 +103,7 @@ def make_job(setup: VideoSetup, params: TrackingParams, dsmpl: float,
         arena_parts=arena_parts(setup.tracking_regions(dsmpl, test), test),
         arena_margin=(HEAD_DIP_MARGIN_CM / setup.scale(dsmpl).cm_per_px
                       if setup.scale(dsmpl) else 0.0),
-        record={"test": test, "setup": setup.to_saved()},
+        record={"test": test, "setup": setup.to_saved(test)},
     )
 
 

@@ -73,10 +73,10 @@ not just crashes.
    6. **Scale:** click both ends of something of known length and type its
       length in cm.
 4. Click **Track** and wait for it to finish.
-5. Click **Analyze**, then look at the **Summary**, **Time Bins**, **Path**
+5. Click **Analyze**, then look at the **Data Summary**, **Time Bins**, **Path**
    and **Heatmap** tabs.
 6. Click **Export**. Check the `_analysis.xlsx` and the two pictures saved
-   beside the video. The workbook has **Experiment**, **Summary**, **Time
+   beside the video. The workbook has **Experiment**, **Data Summary**, **Time
    Bins**, **Settings** and **Setup** sheets.
 7. Click **Clear**, then add the same video again. It should come back
    already set up and tracked (status **Not analyzed**), with its regions as
@@ -107,10 +107,10 @@ not just crashes.
      press **S**); when it stops, **End interaction** (**E**).
    - If there was no interaction, click **No interaction** (**N**).
    - Click **Next visit ▶** (or press **]**) to go to the next one.
-4. Click **Analyze** and look at the Summary: time with each object,
+4. Click **Analyze** and look at the Data Summary: time with each object,
    discrimination index, % preference. These update as you score.
 5. Click **Edit trial info…** in the Review tab, change an object's type, the
-   day or the phase, and save. The Summary should update without tracking
+   day or the phase, and save. The Data Summary should update without tracking
    again.
 6. In the playback window, click **Save as video…** and check that the
    objects and their zones show in the saved `_tracked.mp4`.
@@ -134,9 +134,10 @@ not just crashes.
 1. Add a video together with the `_info.json` its app saved beside it.
 2. If Track Tamer's test or session length differs from the info file's, a
    window shows both side by side: tick the one that's right in each row.
-3. Check the animal's ID beside the file, and the **Experiment** tab.
+3. Check the animal's ID, trial day and session beside the file (blank
+   where the info file doesn't say), and the **Experiment** tab.
 4. If the recording app had to repeat frames (the camera fell behind), the
-   Summary counts them (`RepeatedFrames`), and a session with more than the
+   Data Summary counts them (`RepeatedFrames`), and a session with more than the
    **Warn at repeated frames (%)** setting is flagged after Analyze.
 
 ---
