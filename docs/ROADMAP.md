@@ -2179,6 +2179,15 @@ vanishes.
   0.9.2's Edit trial info and saved video.
 - ✅ **Released 0.9.2 (2026-11-09):** Edit trial info after tracking, objects
   on the saved video, Add folder skips companion CSVs (tag `v0.9.2`).
+- ✅ **Released 0.9.3 (2026-11-12, pre-release, tag `v0.9.3`):** everything
+  built on `main` since 0.9.2: the code review fixes and the ten decisions,
+  the damaged-video fix, pinned package versions, one info file per video
+  (read from the recording apps and added to by Track Tamer), slim tracking
+  files, videos coming back set up, the side-by-side choices, the
+  Experiment sheet and tab, repeated frames, same-arena drafts, videos with
+  no info file, startle repeats warning and startle by sound level.
+  **From this release on, every GitHub release is made from a pushed
+  annotated tag `v<version>`** (user, 2026-11-12).
 - ✅ **Jumps to a video frame match in-order reading (2026-11-10, not
   released).** The camera videos store each frame's real capture time, so
   their frames aren't evenly spaced (gaps of 34–123 ms in one EPM video).
