@@ -3,6 +3,7 @@ tracking writes for them.
 
 Run from the project folder:  .venv/bin/python tests/test_pose.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import os
 import sys
 import tempfile

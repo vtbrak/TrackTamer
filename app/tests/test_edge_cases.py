@@ -3,6 +3,7 @@ tracked position, and settings saved for a test the defaults don't list.
 
 Run from the project folder:  app/.venv/bin/python app/tests/test_edge_cases.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import json
 import os
 import sys

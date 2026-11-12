@@ -5,6 +5,7 @@ and speed is worked out across them (zero-then-double becomes the true speed).
 
 Run from the project folder:  .venv/bin/python tests/test_repeats.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import json
 import os
 import shutil

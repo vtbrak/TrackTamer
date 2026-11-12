@@ -5,6 +5,7 @@ recording app noted are reported, and the animal's ID shows in the list.
 
 Run from the project folder:  .venv/bin/python tests/test_info_gui.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import json
 import os
 import shutil

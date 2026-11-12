@@ -7,6 +7,7 @@ copied to a temporary folder. Settings go to a temporary config.
 
 Run from the project folder:  app/.venv/bin/python app/tests/test_objects_gui.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import os
 import shutil
 import sys

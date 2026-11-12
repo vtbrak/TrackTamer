@@ -1,6 +1,6 @@
 # Track Tamer
 
-**Version 0.9.3** (November 2026): the testing release. See
+**Version 0.9.4** (November 2026): the testing release. See
 [TESTING.md](TESTING.md) to try it.
 
 Tracks a rodent's position in **videos** of an Elevated Plus Maze or Open

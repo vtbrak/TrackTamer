@@ -2425,6 +2425,8 @@ vanishes.
   there: identical copies dropped, different ones kept as `config_2.json`),
   and INSTALL.md's update steps say to copy that folder. It had none of the
   second (no saved paths into its own folder). Tests in `test_layout.py`.
+- ✅ **Released 0.9.4 (2026-11-12, pre-release, tag `v0.9.4`):** the settings
+  fix above, on its own (user: "put out the settings fix as 0.9.4").
 - ✅ **Jumps to a video frame match in-order reading (2026-11-10, not
   released).** The camera videos store each frame's real capture time, so
   their frames aren't evenly spaced (gaps of 34–123 ms in one EPM video).

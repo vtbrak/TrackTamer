@@ -11,7 +11,8 @@ the EPM example for the tests that set up and track a video in the GUI.
 """
 import os
 import sys
-import tempfile
+
+import scratch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # the "app" folder
 EXAMPLES = os.path.join(os.path.dirname(ROOT), "Examples")            # beside it
@@ -40,14 +41,14 @@ def practice_clip() -> str | None:
     """A short practice video for the tests that drive the setup window and
     Track: 1,000 frames of the plus maze example from just after the animal
     is placed, enlarged to 1280 x 720, at the example's own frame rate.
-    Made once and kept in the computer's temporary folder (remade if the
+    Made once and kept in app/tests/.tmp/cache (remade if the
     example changes). Copy it before use: tests write their outputs beside
     the video. None if the example video is missing."""
     if not os.path.exists(EPM_VIDEO):
         return None
     import cv2
     stamp = int(os.stat(EPM_VIDEO).st_mtime)
-    folder = os.path.join(tempfile.gettempdir(), "track_tamer_tests")
+    folder = scratch.CACHE      # on the project's drive, kept between runs
     path = os.path.join(folder, f"Practice_Clip_{stamp}.mp4")
     if os.path.exists(path):
         return path

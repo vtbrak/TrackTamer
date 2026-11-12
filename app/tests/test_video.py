@@ -3,6 +3,7 @@ video (Examples/, gitignored, so this only runs where it exists).
 
 Run from the project folder:  app/.venv/bin/python app/tests/test_video.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import os
 import sys
 

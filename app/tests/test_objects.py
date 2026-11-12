@@ -3,6 +3,7 @@ zones, zone visits, the scoring file and the results.
 
 Run from the project folder:  .venv/bin/python tests/test_objects.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import math
 import os
 import shutil
