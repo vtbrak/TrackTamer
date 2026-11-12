@@ -234,6 +234,71 @@ try:
     apply_choice(obj, s, "day"); apply_choice(obj, s, "phase")
     check("and can be taken from the info file", (s.trial_day, s.trial_phase) == ("2", "Test"))
 
+    # Videos that came without an info file.
+    from core.info import APP_NAME, name_date
+    check("the date and time in a video's file name are read",
+          name_date("6_2024-04-01_11-49-23.mp4") == ("2024-04-01", "11:49:23")
+          and name_date("clip.mp4") == ("", "") and name_date("x_2024-13-40.mp4") == ("", ""))
+    old_video = os.path.join(tmp, "6_2024-04-01_11-49-23.mp4")
+    elsewhere = os.path.join(tmp, "archive"); os.makedirs(elsewhere)
+    source = os.path.join(elsewhere, "2024-04-01_11-49-23_EPM_info.json")
+    with open(source, "w") as f:
+        json.dump({"schema_version": 1, "app_name": "Creature Capture", "assay": "Elevated Plus Maze",
+                   "animal_id": "M6", "treatment": "drug A",
+                   "cameras": [{"label": "Overhead", "video": "renamed-later.mp4", "frames": 4993},
+                               {"label": "Side", "video": "other.mp4"}]}, f)
+    before = open(source).read()
+    info_file.write(old_video, {"test": "Elevated Plus Maze", "setup": {"start_frame": 3}})
+    made = info_file.adopt(old_video, source, json.loads(before)["cameras"][0])
+    got = find_info(old_video)
+    check("an info file the experimenter chooses is copied into the video's own, matched to "
+          "this video, keeping what Track Tamer had saved",
+          os.path.basename(made) == "6_2024-04-01_11-49-23_info.json" and got is not None
+          and not got.renamed and got.animal_id == "M6" and got.test == "Elevated Plus Maze"
+          and got.camera["frames"] == 4993 and got.camera["video"] == os.path.basename(old_video)
+          and len(info_file.cameras(got.raw)) == 1 and got.saved["setup"] == {"start_frame": 3}
+          and got.saved["info_copied_from"] == os.path.basename(source))
+    check("the chosen file itself isn't touched; the copy counts as a recording app's",
+          open(source).read() == before and got.own_file and got.from_recording_app)
+    try:
+        info_file.adopt(old_video, os.path.join(tmp, "2026-11-05_17-30-00_EPM1_info.json"))
+        refused = False
+    except ValueError:
+        refused = True
+    check("a file that isn't an info file is refused", refused)
+
+    typed_video = os.path.join(tmp, "8_2024-04-08_09-46-12.mp4")
+    info_file.write_fields(typed_video, {"animal_id": " M8 ", "sex": "F", "dob": "2024-02-01",
+                                         "date": "2024-04-08", "trial_day": "2", "strain": "",
+                                         "notes": "typed in"}, APP_NAME, "0.9.2")
+    typed = find_info(typed_video)
+    check("animal information typed in Track Tamer is saved as the standard's fields, blanks "
+          "left out",
+          typed.raw["animal_id"] == "M8" and typed.raw["trial_day"] == 2 and "strain" not in typed.raw
+          and typed.raw["app_name"] == "Track Tamer" and typed.raw["schema_version"] == 1
+          and typed.age_days() == 67 and typed.experiment_sections()["Animal"]["Sex"] == "F")
+    check("such a file is Track Tamer's to change, and isn't taken for a recording app's",
+          typed.own_file and typed.recorded and not typed.from_recording_app
+          and typed.typed_fields()["notes"] == "typed in" and typed.test is None)
+    info_file.write(typed_video, {"test": "Open Field"})
+    info_file.write_fields(typed_video, {"animal_id": "M8", "sex": "", "notes": ""}, APP_NAME, "0.9.2")
+    typed = find_info(typed_video)
+    check("changing it later clears what was blanked and keeps Track Tamer's own part",
+          "sex" not in typed.raw and "notes" not in typed.raw and typed.saved["test"] == "Open Field")
+    try:
+        info_file.write_fields(video, {"animal_id": "X"}, APP_NAME, "0.9.2")
+        refused = False
+    except ValueError:
+        refused = True
+    check("a recording app's info file is never changed by typing",
+          refused and find_info(video).animal_id == "M7" and not find_info(video).own_file)
+    from info_dialog import check_animal
+    check("typed information is checked: dates, sex and trial day",
+          check_animal({"animal_id": "M1", "sex": "f", "dob": "2024-02-01", "trial_day": "3"}) == ""
+          and check_animal({}) == "" and "isn't a date" in check_animal({"dob": "1/2/24"})
+          and "Sex is" in check_animal({"sex": "male"})
+          and "whole number" in check_animal({"trial_day": "two"}))
+
     # A draft setup from the last video tracked in the same arena.
     from core.info import arena_draft
     rig = os.path.join(tmp, "rig")

@@ -35,6 +35,8 @@ def chose(p, t, m, choices, default=None, **k):
     return None if answer is None else choices[-1] if answer else choices[-2]
 gui.show_warning = gui.show_info = gui.show_error = said
 gui.ask_yes_no, gui.ask_choice = asked, chose
+# Videos without an info file: the window isn't shown (closed without Done).
+gui.show_missing_info = lambda *a, **k: None
 # The side-by-side choice: closed without choosing unless a side is queued.
 sides = []
 gui.ask_side_by_side = lambda p, t, m, rows, *a, **k: (

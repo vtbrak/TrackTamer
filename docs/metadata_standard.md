@@ -55,9 +55,17 @@ adds an object named `track_tamer` to that video's entry in `cameras`
 (section 2), in the same file, and saves the file again whole. It never
 changes anything the recording app wrote. So an app must not expect the
 file to stay byte for byte as it wrote it, must not rewrite an info file
-after the trial, and should ignore keys it doesn't know when reading one. A
-video with no info file gets `<video name>_info.json` from Track Tamer, in
-this layout, holding only Track Tamer's part.
+after the trial, and should ignore keys it doesn't know when reading one.
+
+**A video with no info file gets `<video name>_info.json` from Track Tamer**,
+in this layout (videos recorded before the apps wrote info files). It holds
+Track Tamer's part and one of: a copy of an info file the experimenter
+pointed to (its one `cameras` entry matched to this video; `app_name` stays
+the recording app's), or the animal's information typed into Track Tamer
+as the standard's fields (`animal_id`, `sex`, `strain`, `dob`, `treatment`,
+`cohort`, `date`, `start_time`, `experimenter`, `trial_day`, `notes`), with
+`app_name` `Track Tamer`, or neither. Such a file has no `assay`: the test
+is the one the video is tracked as (`track_tamer.test`).
 
 **Name parts:**
 - `<date>` is `YYYY-MM-DD`.
@@ -453,7 +461,7 @@ Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
   counts them (`RepeatedFrames`), and **Analyze warns when more than half of
   a video's frames are repeats**, with the share and the real frames a
   second (built 2026-11-11).
-- **From 1.3.5 (reported 2026-11-11; built, not yet committed there):** no
+- **From 1.3.5 (reported 2026-11-11; pushed the same day, user):** no
   per-session `_info.csv` (up to 1.3.4 it wrote one, with columns that
   varied and other words than Creature Capture's). A running log instead,
   `<data folder>_log.csv` (by default `Data/Data_log.csv`), with section

@@ -70,6 +70,9 @@ not just crashes.
 6. Click **Export**. Check the `_analysis.xlsx` and the two pictures saved
    beside the video. The workbook has Experiment, Summary, Time Bins,
    Settings and Setup sheets.
+   (When you add a video that has no `_info.json` beside it, a window asks
+   whether there's an info file for it. Choose one, add the animal's
+   information, or just click **Done**.)
 7. Click **Clear**, then add the same video again. It should come back
    already set up and tracked (status **Not analyzed**), with its regions as
    you drew them, and Analyze should work straight away. That comes from the

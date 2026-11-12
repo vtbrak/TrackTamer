@@ -93,8 +93,9 @@ from region_dialog import RegionDialog
 from setup_window import SetupWindow, use_default_length
 from review_panel import ReviewPanel
 from core import info_file
-from core.info import (TrialInfo, apply_choice, arena_draft, differences, fill_blanks,
-                       find_info, info_for_output, with_animal)
+from core.info import (APP_NAME, TrialInfo, apply_choice, arena_draft, differences,
+                       fill_blanks, find_info, info_for_output, name_date, with_animal)
+from info_dialog import ask_animal, show_missing_info
 from dialogs import (ask_choice, ask_side_by_side, ask_yes_no, show_error, show_info,
                      show_warning)
 from tooltip import Tooltip
@@ -826,8 +827,16 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         # (what Export puts on the workbook's Experiment sheet).
         self.tab_experiment = ttk.Frame(self.nb)
         self.experiment_note = tk.StringVar()
-        ttk.Label(self.tab_experiment, textvariable=self.experiment_note,
-                  padding=(4, 6)).pack(side=tk.TOP, anchor=tk.W)
+        top = ttk.Frame(self.tab_experiment)
+        top.pack(side=tk.TOP, fill=tk.X)
+        ttk.Label(top, textvariable=self.experiment_note,
+                  padding=(4, 6)).pack(side=tk.LEFT, anchor=tk.W)
+        self.animal_btn = ttk.Button(top, text="Animal information…",
+                                     command=self.edit_animal_info)
+        self.animal_btn.pack(side=tk.RIGHT, padx=6, pady=4)
+        Tooltip(self.animal_btn, "Add or change the animal's information for a video "
+                "that came without a recording app's info file. It's saved in an info "
+                "file beside the video. Information from a recording app isn't changed here.")
         self.experiment_tree = self._make_tree(self.tab_experiment)
 
         # Review tab: the selected file's video with its tracking drawn on, and
@@ -1422,6 +1431,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
     def _show_experiment(self, entry) -> None:
         """The Experiment tab: the selected file's animal and task, as its
         recording app saved them. It doesn't wait for Analyze."""
+        self.animal_btn.configure(
+            state="normal" if self._can_type_info(entry) else "disabled")
         if entry is None:
             self.experiment_note.set("Add files, then select one in the file list."
                                      if not self.files else "Select a file in the file list.")
@@ -2035,9 +2046,123 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 "Some files couldn't be read and weren't added.\n\n"
                 + "\n".join(errors),
             )
+        self._ask_missing_info([e for e in self.files[first_new:]
+                                if e.video is not None and e.info is None])
         self._use_info(self.files[first_new:])
 
     # ------------------------------------------------- trial information
+    def _ask_missing_info(self, entries) -> None:
+        """Videos added without an info file (ones recorded before the
+        recording apps wrote them): ask whether there's one for each, chosen
+        with a file picker that opens in the video's folder, and if not offer
+        to add the animal's information (user, 2026-11-11). When the user is
+        done, every one of them has an info file of its own, so it isn't
+        asked about again; closing the window instead leaves them to be asked
+        about next time."""
+        if not entries:
+            return
+        rows = {str(n): e for n, e in enumerate(entries)}
+        done = show_missing_info(self, [(key, e.label) for key, e in rows.items()],
+                                 lambda key: self._choose_info_file(rows[key]),
+                                 lambda key: self._add_animal_info(rows[key]))
+        if not done:
+            return
+        for e in entries:
+            if e.info is None:
+                try:
+                    info_file.write(e.path, {"asked_for_info": True})
+                except OSError:
+                    traceback.print_exc()   # e.g. a read-only folder: asked again next time
+                    continue
+                e.info = find_info(e.path)
+
+    def _choose_info_file(self, e, path: str | None = None) -> str | None:
+        """Let the user pick the info file that goes with a video, starting in
+        the video's own folder, and copy it into the video's info file.
+        Returns what to show for the video, or None if nothing was chosen."""
+        if path is None:
+            path = filedialog.askopenfilename(
+                parent=self, title=f"Info file for {e.label}",
+                initialdir=os.path.dirname(os.path.abspath(e.path)),
+                filetypes=[("Info files", "*.json"), ("All files", "*.*")])
+        if not path:
+            return None
+        raw = info_file.read(path)
+        if raw is None:
+            show_warning(self, "Not an info file",
+                         f"{os.path.basename(path)} isn't an info file. It couldn't be read "
+                         "as one. Info files are the _info.json files a recording app "
+                         "saves beside its videos.")
+            return None
+        if self._same_file_key(path) == self._same_file_key(info_file.own_path(e.path)):
+            return None                     # the video's own file, already in use
+        listed = info_file.cameras(raw)
+        name = os.path.basename(e.path)
+        stem = os.path.splitext(name)[0].lower()
+        camera = next((c for c in listed if c.get("video") == name), None)
+        if camera is None:
+            named = [c for c in listed
+                     if str(c.get("label") or "").strip()
+                     and stem.endswith(str(c["label"]).strip().lower())]
+            camera = named[0] if len(named) == 1 else listed[0] if len(listed) == 1 else None
+        if camera is None and len(listed) > 1:
+            labels = [str(c.get("label") or c.get("video") or f"camera {n + 1}")
+                      for n, c in enumerate(listed)]
+            picked = ask_choice(self, "Which camera is this video?",
+                                f"{os.path.basename(path)} lists {len(listed)} cameras. "
+                                f"Which one recorded {e.label}?", labels[:6])
+            if picked is None:
+                return None
+            camera = listed[labels.index(picked)]
+        try:
+            info_file.adopt(e.path, path, camera)
+        except (OSError, ValueError) as exc:
+            show_warning(self, "The info file couldn't be used",
+                         f"The info file couldn't be used for {e.label}.\n\n{exc}")
+            return None
+        e.info = find_info(e.path)
+        return f"info file: {os.path.basename(path)}"
+
+    def _add_animal_info(self, e, values: dict | None = None) -> str | None:
+        """Type in (or change) a video's animal information, saved in the
+        video's own info file. Returns what to show for the video, or None
+        if cancelled or it couldn't be saved."""
+        video = self._video_path(e) if e.video is None else e.path
+        if video is None:
+            return None
+        day, clock = name_date(video)       # the lab's file names carry the date
+        if values is None:
+            start = e.info.typed_fields() if e.info is not None else {}
+            if not start.get("date"):
+                start["date"] = day
+            values = ask_animal(self, e.label, start)
+        if values is None:
+            return None
+        values = dict(values)
+        values["start_time"] = clock if values.get("date") == day else ""
+        try:
+            info_file.write_fields(video, values, APP_NAME, VERSION)
+        except (OSError, ValueError) as exc:
+            show_warning(self, "The information wasn't saved",
+                         f"The information for {e.label} wasn't saved.\n\n{exc}")
+            return None
+        e.info = find_info(video) if e.video is not None else info_for_output(e.path)
+        if e.analyzed:          # the row carries the animal's ID
+            e.summary = with_animal(e.summary, e.info)
+        return f"animal: {values.get('animal_id') or 'information added'}"
+
+    def _can_type_info(self, e) -> bool:
+        """True if a file's animal information is Track Tamer's to type or
+        change: its video is here, and no recording app's info file says it."""
+        if e is None or (e.video is None and self._video_path(e) is None):
+            return False
+        return e.info is None or (e.info.own_file and not e.info.from_recording_app)
+
+    def edit_animal_info(self) -> None:
+        """The Experiment tab's button: the selected file's animal information."""
+        e = self._selected_entry()
+        if self._can_type_info(e) and self._add_animal_info(e):
+            self._refresh()
     def _restore_setup(self, setup, info):
         """Bring a video's setup back from its info file (what Track Tamer
         saved there when it was tracked): the session, crop, shapes, regions

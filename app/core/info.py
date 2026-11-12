@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -26,6 +27,19 @@ from .info_file import INFO_ENDING, OWN  # noqa: F401 (INFO_ENDING is re-exporte
 from .objects import KINDS, PHASES
 
 SCHEMA_VERSION = 1          # the newest version of the standard this reads
+APP_NAME = "Track Tamer"    # `app_name` in an info file whose details were typed here
+DATE_IN_NAME = re.compile(r"(?<!\d)(\d{4}-\d{2}-\d{2})(?:[_ T](\d{2})-(\d{2})-(\d{2}))?(?!\d)")
+
+
+def name_date(file_name: str) -> tuple[str, str]:
+    """(date, start time) written in a video's file name, as the lab's
+    recordings carry them (`6_2024-04-01_11-49-23.mp4` -> 2024-04-01,
+    11:49:23); "" for a part that isn't there or isn't a real date."""
+    m = DATE_IN_NAME.search(os.path.basename(file_name))
+    if not m or _day(m.group(1)) is None:
+        return "", ""
+    clock = ":".join(m.group(2, 3, 4)) if m.group(2) else ""
+    return m.group(1), clock
 
 # `assay` (standard, section 3) -> Track Tamer's test type. Matching ignores
 # upper/lower case and spaces at the ends.
@@ -113,6 +127,27 @@ class TrialInfo:
         on which animal); False for a file Track Tamer made for a video that
         had none, which holds only Track Tamer's own part."""
         return any(not _blank(self.raw.get(k)) for k in ("assay", "animal_id", "app_name"))
+
+    @property
+    def from_recording_app(self) -> bool:
+        """True if a recording app wrote the trial details (not typed into
+        Track Tamer)."""
+        name = _text(self.raw.get("app_name"))
+        return self.recorded and name != APP_NAME
+
+    @property
+    def own_file(self) -> bool:
+        """True if this is the info file Track Tamer keeps for a video that
+        came without one (`<video name>_info.json`): the animal's information
+        in it can be typed and changed in Track Tamer. A recording app's
+        file is never changed."""
+        video = self.camera.get("video")
+        return bool(self.path) and isinstance(video, str) and (
+            os.path.basename(self.path) == os.path.splitext(video)[0] + INFO_ENDING)
+
+    def typed_fields(self) -> dict:
+        """The fields that can be typed in Track Tamer, as text."""
+        return {key: _text(self.raw.get(key)) for key in info_file.TYPED_FIELDS}
 
     # --- what was run ----------------------------------------------------
     @property
