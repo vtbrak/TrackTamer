@@ -113,7 +113,12 @@ tracks videos itself (adapted from ezTrack).
   (`report_callback_exception` in `gui.py`).
 - **Tests:** run all of `app/tests/test_*.py` and `regress_gui.py` after
   changes, in both `app/.venv` and the `track-tamer` conda environment (the
-  launcher uses the conda one). The practice video for the GUI tests is cut
+  launcher uses the conda one). **Every test file starts with `import
+  scratch`** (`tests/scratch.py`): its temporary files go in a per-run folder
+  in `app/tests/.tmp` (on the project's drive, gitignored), removed when the
+  run ends. Never let a test write to the computer's temporary folder: by
+  2026-11-12 the runs had left 15 GB of copied videos on the user's main
+  disk, which was 98% full (user: put the tests' files on AI Files). The practice video for the GUI tests is cut
   from the plus maze example (`tests/samples.py` `practice_clip`; ezTrack's
   practice videos are gone, user 2026-11-10). `test_saving.py`,
   `test_edge_cases.py` and `test_gui_fixes.py` hold one check per bug fixed

@@ -31,3 +31,6 @@ ezTrack/
 
 # Example videos and their outputs (research data, kept off GitHub)
 examples/
+
+# The tests' temporary files (app/tests/scratch.py), removed after each run
+app/tests/.tmp/

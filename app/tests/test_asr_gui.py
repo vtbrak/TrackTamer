@@ -4,6 +4,7 @@ temporary config.
 
 Run from the project folder:  .venv/bin/python tests/test_asr_gui.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import os
 import shutil
 import sys

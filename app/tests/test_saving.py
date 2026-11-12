@@ -5,6 +5,7 @@ folder with accented letters in its name.
 
 Run from the project folder:  app/.venv/bin/python app/tests/test_saving.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import os
 import sys
 import tempfile

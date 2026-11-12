@@ -8,6 +8,7 @@ and the practice clip (tests/samples.py). Settings go to a temporary config.
 
 Run from the project folder:  app/.venv/bin/python app/tests/test_gui_fixes.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import os
 import shutil
 import sys

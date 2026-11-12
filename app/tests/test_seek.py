@@ -5,6 +5,7 @@ off in stretches of videos whose frames aren't evenly spaced in time, which
 is every camera recording in Examples. Tracking reads in order, so a jump
 that is off puts the tracked marks on a neighbouring frame. This checks that
 `VideoReader.read_at`, the first frame tracking reads (`VideoReader.frames`
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 from a start frame) and the playback window's `FrameSource` give exactly the
 in-order frames, on the example videos that are there (skipped when none
 are).

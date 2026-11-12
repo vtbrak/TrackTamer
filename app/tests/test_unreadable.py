@@ -4,6 +4,7 @@ only runs where they exist) with gaps added the way this app's tracking writes t
 
 Run from the project folder:  .venv/bin/python tests/test_unreadable.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import os
 import sys
 import tempfile

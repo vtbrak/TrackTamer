@@ -5,6 +5,7 @@ Uses the paper's clips in Examples/ASR videos from paper (gitignored).
 
 Run from the project folder:  .venv/bin/python tests/test_asr.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import json
 import math
 import os

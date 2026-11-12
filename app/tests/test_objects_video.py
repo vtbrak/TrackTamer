@@ -4,6 +4,7 @@ visits, score, analyze, export. Works on a copy in a temporary folder.
 
 Run from the project folder:  .venv/bin/python tests/test_objects_video.py
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import os
 import shutil
 import sys

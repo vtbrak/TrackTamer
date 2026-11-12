@@ -9,6 +9,7 @@ config, never the real config.json.
 Run from the project folder:  .venv/bin/python tests/regress_gui.py
 (Windows: .venv\\Scripts\\python.exe tests\\regress_gui.py)
 """
+import scratch  # noqa: F401  (first: temporary files go in app/tests/.tmp, removed after the run)
 import json
 import os
 import sys
