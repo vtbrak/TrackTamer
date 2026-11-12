@@ -199,7 +199,7 @@ case and spaces at the ends.
 | `Acoustic Startle Response` | built (ROADMAP §13) | `Prepulse Inhibition`, `Startle Habituation` | |
 | `Conditioned Place Preference` | planned | | `Pretest`, `Conditioning`, `Test` |
 | `Puzzle Box` | not analyzed in Track Tamer for now (listed for consistency) | | |
-| `Skilled Reaching` | not analyzed in Track Tamer (listed for consistency) | | `Training`, `Testing` |
+| `Skilled Reaching` | not analyzed in Track Tamer (listed for consistency) | | `Training`, `Test` |
 
 Variants of one assay share Track Tamer's analysis: an object trial is
 analyzed the same way whichever variant it is (the user marks each object
@@ -361,10 +361,12 @@ confined to in a conditioning session).
   assay list (user: it won't be captured). An info file that still says it
   is treated like any assay not on the list.
 - **Schema 1 (draft, 2026-11-12):** `Skilled Reaching` gets the phases
-  `Training` and `Testing` (asked for by Pellet Paparazzi, passing on the
+  `Training` and `Test` (asked for by Pellet Paparazzi, passing on the
   user's words: "the skilled reaching should list out training and testing
-  for the phase"; this replaces the 2026-11-06 choice not to list them). It
-  has no variants; the day number goes in `trial_day`.
+  for the phase"; this replaces the 2026-11-06 choice not to list them). The
+  second is spelled `Test`, as Object Recognition's is (user, the same day:
+  "use test for skilled reaching so that it is the same"). It has no
+  variants; the day number goes in `trial_day`.
 - **Schema 1 (draft, 2026-11-12):** no field changed. Section 4 now says
   where Track Tamer puts each field as it is built (its column had still
   said "Summary column" for fields that moved to the Experiment sheet on
@@ -512,7 +514,7 @@ Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
 Skilled reaching recording. **Not analyzed in Track Tamer** (the task and
 its analysis are different); it follows this standard where the fields
 apply, so its data files match the rest of the lab's. `assay` =
-`Skilled Reaching`, no variant, `phase` `Training` or `Testing`, with the
+`Skilled Reaching`, no variant, `phase` `Training` or `Test`, with the
 day number in `trial_day` (e.g. phase `Training`, `trial_day` 3). App-only
 fields in `pellet_paparazzi`. Its fields will be listed here once its info
 file is written.
