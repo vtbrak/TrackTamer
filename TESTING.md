@@ -39,10 +39,11 @@ If the computer blocks a file:
 Stuck? [INSTALL.md](INSTALL.md) has more detail, including a way to install
 on a Mac without an administrator password.
 
-**Already installed an earlier version?** Replace the old program folder with
-the new one and run **Install Track Tamer** again before opening it: 0.9.3
-installs the exact package versions it was tested with, and Install updates
-your existing environment to match.
+**Already installed an earlier version?** Follow **Updating the program** in
+[INSTALL.md](INSTALL.md): copy your settings out of the old folder, replace
+the folder, put the settings back, and run **Install Track Tamer** again
+before opening it (it installs the exact package versions this version was
+tested with, updating your existing environment to match).
 
 ---
 

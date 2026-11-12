@@ -12,23 +12,56 @@ import json
 import os
 import tempfile
 
-# config.json sits in the program's "app" folder, beside gui.py.
+# Everything the user sets up lives in ONE folder, app/config, so updating to
+# a new version is: replace the program folder, then copy app/config across
+# (user, 2026-11-12, the same for every app in the suite).
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_PATH = os.path.join(_APP_DIR, "config.json")
-# Before the files were gathered into "app" it sat one level up, in the
-# project folder; a file left there is moved over the first time it's needed.
-_OLD_CONFIG_PATH = os.path.join(os.path.dirname(_APP_DIR), "config.json")
+CONFIG_DIR = os.path.join(_APP_DIR, "config")
+CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
+# Where older versions kept the file: app/config.json (0.9.3 and before) and,
+# before the files were gathered into "app", the project folder. A file found
+# there is moved into app/config the first time it's needed.
+_OLD_CONFIG_PATHS = (os.path.join(_APP_DIR, "config.json"),
+                     os.path.join(os.path.dirname(_APP_DIR), "config.json"))
+
+
+def _same_file_contents(a: str, b: str) -> bool:
+    try:
+        with open(a, "rb") as fa, open(b, "rb") as fb:
+            return fa.read() == fb.read()
+    except OSError:
+        return False
+
+
+def _free_name(path: str) -> str:
+    """`path`, or `<name>_2<ending>`, `_3`, ... if that's taken."""
+    base, ending = os.path.splitext(path)
+    n, candidate = 2, path
+    while os.path.exists(candidate):
+        candidate = f"{base}_{n}{ending}"
+        n += 1
+    return candidate
 
 
 def _adopt_old_config() -> None:
-    """Move a settings file from the old place to the new one, if there's
-    one there and none here. Never stops the app: on any error the old file
-    stays where it is and defaults are used."""
-    try:
-        if not os.path.exists(CONFIG_PATH) and os.path.isfile(_OLD_CONFIG_PATH):
-            os.replace(_OLD_CONFIG_PATH, CONFIG_PATH)
-    except OSError:
-        pass
+    """Move a settings file from an old place into app/config. A file is
+    never replaced: if app/config already has one, an identical old copy is
+    dropped and a different one is kept beside it as config_2.json (and so
+    on), unread, so nothing the user set is lost. Never stops the app: on
+    any error the old file stays where it is."""
+    for old in _OLD_CONFIG_PATHS:
+        try:
+            if not os.path.isfile(old):
+                continue
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            if not os.path.exists(CONFIG_PATH):
+                os.replace(old, CONFIG_PATH)
+            elif _same_file_contents(old, CONFIG_PATH):
+                os.remove(old)
+            else:
+                os.replace(old, _free_name(CONFIG_PATH))
+        except OSError:
+            pass
 
 DEFAULTS: dict = {
     "fps": 20.0,
@@ -176,6 +209,7 @@ def load_config(path: str = CONFIG_PATH) -> dict:
 def save_config(config: dict, path: str = CONFIG_PATH) -> None:
     """Write settings atomically so a crash mid-save can't corrupt the file."""
     directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)       # app/config on a first run
     fd, tmp = tempfile.mkstemp(dir=directory, prefix=".config-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:

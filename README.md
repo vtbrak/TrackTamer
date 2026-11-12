@@ -43,6 +43,13 @@ error messages.
 environment only; the program folder and your data, results and settings
 stay.
 
+**Settings** are kept in one folder, `app/config` (the file
+`app/config/config.json`). When updating, copy that folder into the new
+program folder: see INSTALL.md, "Updating the program". A settings file left
+in an older place (`app/config.json`, or the program folder for 0.9.2 and
+earlier) is moved there automatically; an existing one is never written
+over (a different copy is kept beside it as `config_2.json`).
+
 ### Without Anaconda
 The Open launchers fall back to a local Python environment (`app/.venv`), built
 and filled automatically on the first run. This needs Python 3.12 or newer (the
