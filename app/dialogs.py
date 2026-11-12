@@ -6,7 +6,8 @@ dialogs are drawn with tkinter itself, so every pop-up shows its first
 sentence in bold and the rest in regular type, on both systems.
 
 API mirrors messagebox: show_info / show_warning / show_error / ask_yes_no,
-plus ask_choice (several named buttons, where closing the window cancels).
+plus ask_choice (several named buttons, where closing the window cancels)
+and ask_side_by_side (two values per row, one ticked in each).
 
 Also here, because they are the same kind of portability helper: `bold_font`
 (bold text in the system's own font) and `fit_window` (a window size that
@@ -146,6 +147,126 @@ def ask_choice(parent, title: str, message: str, choices: list[str],
     answer is safe to assume."""
     return _run(parent, title, message, "question", list(choices),
                 default or choices[-1], None)
+
+
+class _SideBySideDialog(tk.Toplevel):
+    """Rows of two values side by side, each with a check box; exactly one
+    is ticked in every row. `result` is the side ticked per row ("left" or
+    "right"), or None if the window was cancelled or closed."""
+
+    SCROLL_ROWS = 8     # more rows than this scroll
+
+    def __init__(self, parent, title, message, rows, left_title, right_title,
+                 preselect, ok, cancel):
+        super().__init__(parent)
+        self.withdraw()
+        self.title(title)
+        self.resizable(False, False)
+        if parent is not None:
+            self.transient(parent)
+        self.result = None
+        first, rest = split_first_sentence(message)
+        bold = bold_font()
+
+        outer = tk.Frame(self)
+        outer.pack(fill=tk.BOTH, expand=True)
+        tk.Frame(outer, width=6, background=_ACCENTS["question"]).pack(side=tk.LEFT, fill=tk.Y)
+        body = ttk.Frame(outer, padding=(16, 14, 16, 12))
+        body.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        wrap = _WRAP_PX + 180
+        ttk.Label(body, text=first, font=bold, wraplength=wrap,
+                  justify=tk.LEFT).pack(anchor=tk.W)
+        if rest:
+            ttk.Label(body, text=_trim(rest), wraplength=wrap,
+                      justify=tk.LEFT).pack(anchor=tk.W, pady=(8, 0))
+
+        holder = ttk.Frame(body)
+        holder.pack(anchor=tk.W, fill=tk.X, pady=(12, 0))
+        if len(rows) > self.SCROLL_ROWS:
+            canvas = tk.Canvas(holder, highlightthickness=0, height=300, width=wrap)
+            bar = ttk.Scrollbar(holder, orient=tk.VERTICAL, command=canvas.yview)
+            canvas.configure(yscrollcommand=bar.set)
+            bar.pack(side=tk.RIGHT, fill=tk.Y)
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            table = ttk.Frame(canvas)
+            canvas.create_window((0, 0), window=table, anchor="nw")
+            table.bind("<Configure>",
+                       lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        else:
+            table = ttk.Frame(holder)
+            table.pack(anchor=tk.W)
+        ttk.Label(table, text=left_title, font=bold).grid(row=0, column=1, sticky="w",
+                                                          padx=(14, 0))
+        ttk.Label(table, text=right_title, font=bold).grid(row=0, column=2, sticky="w",
+                                                           padx=(14, 0))
+        self.vars = []      # per row: (left ticked, right ticked)
+        for n, (label, detail, left, right) in enumerate(rows, start=1):
+            name = ttk.Frame(table)
+            name.grid(row=n, column=0, sticky="nw", pady=(8, 0))
+            ttk.Label(name, text=label, font=bold).pack(anchor=tk.W)
+            if detail:
+                ttk.Label(name, text=detail, foreground="gray", wraplength=200,
+                          justify=tk.LEFT).pack(anchor=tk.W)
+            pair = (tk.BooleanVar(value=preselect == "left"),
+                    tk.BooleanVar(value=preselect != "left"))
+            self.vars.append(pair)
+            for side, text in enumerate((left, right)):
+                box = tk.Checkbutton(      # tk, not ttk: its text wraps
+                    table, text=str(text), variable=pair[side], wraplength=210,
+                    justify=tk.LEFT, anchor="w",
+                    command=lambda pair=pair, side=side: self._tick(pair, side))
+                box.grid(row=n, column=1 + side, sticky="nw", padx=(10, 0), pady=(6, 0))
+
+        buttons = ttk.Frame(body)
+        buttons.pack(anchor=tk.E, pady=(14, 0))
+        ttk.Button(buttons, text=cancel, command=self._cancel).pack(side=tk.LEFT, padx=(6, 0))
+        apply = ttk.Button(buttons, text=ok, command=self._ok)
+        apply.pack(side=tk.LEFT, padx=(6, 0))
+        apply.focus_set()
+        self.bind("<Return>", lambda _e: self._ok())
+        self.bind("<Escape>", lambda _e: self._cancel())
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+
+        _MessageDialog._place_over(self, parent)
+        self.deiconify()
+        self.lift()
+        self.grab_set()
+
+    @staticmethod
+    def _tick(pair, side: int) -> None:
+        """One box per row is always ticked: ticking one unticks the other,
+        and the ticked one can't be unticked on its own."""
+        pair[side].set(True)
+        pair[1 - side].set(False)
+
+    def choices(self) -> list[str]:
+        return ["left" if left.get() else "right" for left, _ in self.vars]
+
+    def _ok(self) -> None:
+        self.result = self.choices()
+        self._finish()
+
+    def _cancel(self) -> None:
+        self.result = None
+        self._finish()
+
+    def _finish(self) -> None:
+        self.grab_release()
+        self.destroy()
+
+
+def ask_side_by_side(parent, title: str, message: str, rows: list[tuple],
+                     left_title: str, right_title: str, preselect: str = "right",
+                     ok: str = "Use Ticked", cancel: str = "Cancel") -> list[str] | None:
+    """Show values that disagree side by side and let the user tick the one
+    that's right in each row. `rows` are (label, detail, left value, right
+    value); `preselect` is the side ticked to begin with. Returns "left" or
+    "right" for each row, or None if the window was cancelled or closed
+    (nothing was chosen)."""
+    dlg = _SideBySideDialog(parent, title, message, rows, left_title, right_title,
+                            preselect, ok, cancel)
+    dlg.wait_window()
+    return dlg.result
 
 
 _bold_fonts: dict = {}

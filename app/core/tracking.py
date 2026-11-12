@@ -26,13 +26,17 @@ Changes from ezTrack:
 
 from __future__ import annotations
 
+import ast
 import os
 from dataclasses import dataclass, field
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
 
+from . import info_file
 from .safe_write import image_bytes, replacing
+from .version import VERSION
 from .video import Prep, VideoReader, polygon_mask
 
 METHODS = ("dark", "light", "abs")  # animal darker / lighter / either
@@ -287,19 +291,63 @@ def output_paths(video_path: str) -> dict[str, str]:
     return {"csv": base + "_LocationOutput.csv", "reference": base + "_reference.png"}
 
 
-def save_outputs(video_path: str, df: pd.DataFrame, reference: np.ndarray) -> dict[str, str]:
+# What a tracking file used to repeat on every row: the video's name, every
+# tracking setting and the region outlines. They're saved once, in the
+# video's info file, and the tracking file keeps the per-frame columns
+# (user, 2026-11-11). `loader.load_csv` puts them back when it reads one.
+def constant_columns() -> tuple:
+    from .loader import SETTINGS_COLUMNS
+    return ("File", *SETTINGS_COLUMNS, "ROI_coordinates")
+
+
+def split_constants(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """(the per-frame columns, {constant column: its value})."""
+    constants = {}
+    for column in constant_columns():
+        if column not in df.columns or not len(df):
+            continue
+        value = df[column].iloc[0]
+        value = value.item() if hasattr(value, "item") else value
+        if isinstance(value, float) and np.isnan(value):
+            value = None
+        if column == "ROI_coordinates" and isinstance(value, str):
+            try:
+                value = ast.literal_eval(value)     # real lists read better in the JSON
+            except (ValueError, SyntaxError):
+                pass
+        constants[column] = value
+    return df.drop(columns=list(constants)), constants
+
+
+def save_outputs(video_path: str, df: pd.DataFrame, reference: np.ndarray,
+                 record: dict | None = None, label: str | None = None) -> dict[str, str]:
     """Write `<name>_LocationOutput.csv` and `<name>_reference.png` next to
-    the video, in place of earlier ones. Both are written in full before
-    either earlier file is touched, so a failed save (a full disk, the
-    tracking file open in Excel on Windows) leaves the earlier pair as it
-    was, still matching each other."""
+    the video, in place of earlier ones, and save what the tracking file
+    doesn't repeat (its settings and region outlines), with `record` (the
+    test and the video's setup), in the video's info file. All three are
+    written in full before any earlier file is touched, so a failed save (a
+    full disk, the tracking file open in Excel on Windows) leaves the
+    earlier files as they were, still matching each other. `label` is the
+    camera label of a renamed video's entry in its info file."""
     paths = output_paths(video_path)
     image = image_bytes(np.clip(reference, 0, 255).astype(np.uint8), ".png")
+    frames, constants = split_constants(df)
+    info_path, text = info_file.prepare(video_path, {
+        **(record or {}),
+        "version": VERSION, "saved": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "tracking": constants,
+        "files": {"tracking": os.path.basename(paths["csv"]),
+                  "reference": os.path.basename(paths["reference"])},
+    }, label)
+    paths["info"] = info_path
     # The tracking file is put in place first (it's the one likely to be
-    # open elsewhere); if that fails the reference isn't replaced either.
+    # open elsewhere); if that fails the other two aren't replaced either.
     with replacing(paths["reference"]) as ref_tmp:
         with open(ref_tmp, "wb") as f:
             f.write(image)
-        with replacing(paths["csv"]) as csv_tmp:
-            df.to_csv(csv_tmp, index=False)
+        with replacing(info_path) as info_tmp:
+            with open(info_tmp, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+            with replacing(paths["csv"]) as csv_tmp:
+                frames.to_csv(csv_tmp, index=False)
     return paths

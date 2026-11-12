@@ -401,10 +401,8 @@ def summary_metrics(data: TrackingData, fps: float = 20.0,
     out["SharedRegionFrames"] = shared_n
     out["SharedRegions"] = "; ".join(f"{k} ({v} frames)" for k, v in shared.items())
 
-    # Carry the tracking settings through so they appear in the results table.
-    for key, val in data.settings.items():
-        out[key] = val
-
+    # The tracking settings aren't repeated here (user, 2026-11-11): they are
+    # on the export's Settings sheet and in the video's info file.
     return out
 
 
@@ -797,8 +795,8 @@ def summary_column_groups(columns, test: str = "") -> dict[str, list[str]]:
             c for c in columns if c.startswith(("EPM_", "OF_", "OR_", "ASR_"))]
     groups["key"] = keys
     for c in columns:
-        if c == "File" or c in keys:
-            continue
+        if c in ("File", "animal_id") or c in keys:
+            continue    # shown beside every row, not in a group
         if c in _BASICS:
             groups["basics"].append(c)
         elif c.startswith(("EPM_", "OF_", "OR_", "ASR_")):

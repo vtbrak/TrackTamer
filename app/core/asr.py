@@ -25,20 +25,23 @@ docs/metadata_standard.md) or are typed in as video frames.
 
 from __future__ import annotations
 
-import glob
 import json
 import math
 import os
 from dataclasses import dataclass
+from datetime import datetime
 
 import cv2
 import numpy as np
 import pandas as pd
 
+from . import info_file
+from .info import find_info as trial_info_for
 from .loader import TrackingData
-from .safe_write import write_csv
+from .safe_write import replacing
 from .tracking import crop_text
 from .video import Prep, VideoReader
+from .version import VERSION
 from .video_setup import ASR_TEST, VideoSetup
 
 MOTION_SUFFIX = "_MotionIndex.csv"
@@ -102,19 +105,10 @@ def motion_table(path: str, prep: Prep, start: int, end: int, threshold: float,
 def find_info(video_path: str) -> tuple[dict, dict] | None:
     """(info file contents, this video's `cameras` entry) from the `*_info.json`
     beside the video that lists it by exact name; None if there isn't one."""
-    name = os.path.basename(video_path)
-    pattern = os.path.join(glob.escape(os.path.dirname(os.path.abspath(video_path))),
-                           "*_info.json")
-    for path in sorted(glob.glob(pattern)):
-        try:
-            with open(path, encoding="utf-8") as f:
-                info = json.load(f)
-            for camera in info.get("cameras", []):
-                if camera.get("video") == name:
-                    return info, camera
-        except (OSError, ValueError, AttributeError):
-            continue
-    return None
+    found = trial_info_for(video_path)
+    if found is None or found.renamed:
+        return None
+    return found.raw, found.camera
 
 
 def frame_times(video_path: str, camera: dict | None) -> dict | None:
@@ -204,6 +198,10 @@ class AsrJob:
     fps: float
     exclusion_count: int
     typed_frames: list[int]
+    # For the video's info file: the test and the setup as run, and the
+    # camera label of a renamed video's entry in that file.
+    record: dict | None = None
+    label: str | None = None
 
 
 def make_asr_job(setup: VideoSetup, threshold: float) -> AsrJob:
@@ -213,7 +211,8 @@ def make_asr_job(setup: VideoSetup, threshold: float) -> AsrJob:
                   end=setup.end_frame, mask=setup.exclusion_mask(1.0),
                   threshold=float(threshold), fps=float(setup.info.fps or 0),
                   exclusion_count=len(setup.exclusions),
-                  typed_frames=list(setup.stimulus_frames))
+                  typed_frames=list(setup.stimulus_frames),
+                  record={"test": ASR_TEST, "setup": setup.to_saved()})
 
 
 def motion_path(video_path: str) -> str:
@@ -236,23 +235,58 @@ def run_asr_job(job: AsrJob, progress=None, should_cancel=None):
     source = "info file" if stimuli else "typed in"
     if not stimuli:
         stimuli = [{"frame": f, "type": PULSE} for f in job.typed_frames]
-    table.insert(0, "File", os.path.basename(job.path))
-    table["Intensity_Threshold"] = job.threshold
-    table["Start_Frame"] = job.start
-    table["Crop"] = crop_text(job.prep.crop)
-    table["Exclusion_Shapes"] = job.exclusion_count
-    table["Video_FPS"] = job.fps
-    table["Stimulus_Source"] = source if stimuli else "none"
-    table["Stimuli"] = ""                         # the list is long: first row only
-    table.loc[table.index[0], "Stimuli"] = json.dumps(stimuli)
     path = motion_path(job.path)
-    write_csv(table, path)
+    # The motion file keeps what differs from frame to frame. What is one
+    # value for the whole video is saved once, in the video's info file
+    # (user, 2026-11-11), with the setup, so the video can be added again as
+    # it was. The stimuli aren't copied: they're read from the info file's
+    # own `stimuli` list, or, when they were typed in, from the frames kept
+    # here.
+    constants = {
+        "File": os.path.basename(job.path), "Intensity_Threshold": job.threshold,
+        "Start_Frame": job.start, "Crop": crop_text(job.prep.crop),
+        "Exclusion_Shapes": job.exclusion_count, "Video_FPS": job.fps,
+        "Stimulus_Source": source if stimuli else "none",
+        "Total_px": int(table["Total_px"].max()),
+    }
+    if source == "typed in" and stimuli:
+        constants["Stimulus_Frames"] = [int(s["frame"]) for s in stimuli]
+    info_path, text = info_file.prepare(job.path, {
+        **(job.record or {}), "version": VERSION,
+        "saved": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "tracking": constants,
+        "files": {"tracking": os.path.basename(path)}}, job.label)
+    # Both are written whole before either earlier file is replaced.
+    with replacing(info_path) as info_tmp:
+        with open(info_tmp, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        with replacing(path) as tmp:
+            table.drop(columns=["Total_px"]).to_csv(tmp, index=False)
     return load_motion(path), path
 
 
+def _saved_stimuli(path: str, source, typed) -> list[dict]:
+    """A slim motion file's stimuli: the info file's own list, or the frames
+    that were typed in."""
+    if source == "info file":
+        found = info_file.for_output(path)
+        return stimuli_from_info(found[1]) if found else []
+    try:
+        return [{"frame": int(f), "type": PULSE} for f in typed or []]
+    except (TypeError, ValueError):
+        return []
+
+
 def load_motion(path: str) -> TrackingData:
-    """Read a `_MotionIndex.csv`. Settings come from its first row."""
+    """Read a `_MotionIndex.csv`. What is one value for the whole video (the
+    settings, the pixels analyzed) comes back from the video's info file; an
+    older file that holds its own settings and stimuli is read as it is."""
     df = pd.read_csv(path, low_memory=False, keep_default_na=True)
+    saved = info_file.saved_columns(path)
+    typed = saved.pop("Stimulus_Frames", None)
+    for column, value in saved.items():
+        if column not in df.columns:
+            df[column] = np.nan if value is None else value
     missing = [c for c in ("Frame", "Time_s", "MotionIndex_pct") if c not in df.columns]
     if missing:
         raise ValueError(f"{os.path.basename(path)} is missing required column(s): "
@@ -261,6 +295,9 @@ def load_motion(path: str) -> TrackingData:
         if column in df.columns:
             df[column] = df[column].astype(str).str.lower() == "true"
     settings = {c: df[c].iloc[0] for c in SETTING_COLUMNS if c in df.columns and len(df)}
+    if "Stimuli" not in settings:
+        settings["Stimuli"] = json.dumps(
+            _saved_stimuli(path, settings.get("Stimulus_Source"), typed))
     return TrackingData(path=path, df=df, settings=settings, regions=[])
 
 
@@ -463,7 +500,9 @@ def asr_summary(data: TrackingData, startle_ms: float = 200.0, baseline_ms: floa
         "RepeatedFrames": repeated_count(data),
         "MotionIndex_SessionMean_pct": round(float(np.nanmean(values)), 4)
         if np.any(~np.isnan(values)) else float("nan"),
-        "AnalyzedPixels": int(data.df["Total_px"].max()),
+        # (blank for a motion file whose info file is gone)
+        "AnalyzedPixels": (int(data.df["Total_px"].max())
+                           if "Total_px" in data.df.columns else None),
         "IntensityThreshold": data.settings.get("Intensity_Threshold"),
         "StartleWindow_ms": startle_ms, "BaselineWindow_ms": baseline_ms,
         "HabituationBlock_trials": block_trials,

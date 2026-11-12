@@ -79,7 +79,8 @@ for obj in ("object 1", "object 2"):
     sc.start(obj, x["row"]); sc.end(x["row"] + 9)
 app.analyze(); app.update()
 s = e.summary
-keys = list(s)[1:9]
+check("the row starts with File and the animal's ID", list(s)[:2] == ["File", "animal_id"])
+keys = list(s)[2:10]
 print("   first columns:", keys)
 check("Summary leads with the trial and object measures",
       keys[:6] == ["OR_Day", "OR_Phase", "OR_NovelObjects", "OR_DiscriminationIndex",

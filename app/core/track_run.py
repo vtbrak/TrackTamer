@@ -51,6 +51,10 @@ class TrackJob:
     exclusion_count: int
     fps: float
     extra: dict | None = None         # more settings columns (object recognition)
+    # For the video's info file: the test and the setup as tracked, and the
+    # camera label of a renamed video's entry in that file.
+    record: dict | None = None
+    label: str | None = None
 
 
 def make_job(setup: VideoSetup, params: TrackingParams, dsmpl: float,
@@ -75,6 +79,7 @@ def make_job(setup: VideoSetup, params: TrackingParams, dsmpl: float,
         exclusion_count=len(setup.exclusions),
         fps=float(setup.info.fps or 0),
         extra=object_settings(setup, dsmpl) if test == OBJECT_TEST else None,
+        record={"test": test, "setup": setup.to_saved()},
     )
 
 
@@ -108,7 +113,7 @@ def run_job(job: TrackJob, progress=None, should_cancel=None,
     out = assemble_output(job.path, result.df, job.params, job.prep, job.start,
                           job.regions, job.shape, job.scale, job.reference_frames,
                           job.exclusion_count, job.fps, extra=job.extra)
-    paths = save_outputs(job.path, out, reference)
+    paths = save_outputs(job.path, out, reference, job.record, job.label)
     data = load_csv(paths["csv"])
     data.missing_at_end = result.missing_at_end     # for the finished message
     return data, paths["csv"]

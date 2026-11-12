@@ -232,8 +232,36 @@ here); tested on Mac, PC test pending.
 Tamer is the **master** for metadata: every app that records video for it
 (first: the user's Creature Capture) writes `<date>_<time>_<arena>_info.json`
 per this standard, with `assay` from its fixed list. The user adds other
-apps' pieces over time (an "Apps" section per app). Reading it in Track Tamer
-is planned for after 1.0; don't build before 1.0.
+apps' pieces over time (an "Apps" section per app).
+**Reading it was moved up by the user on 2026-11-11 and is being built on
+`main`** (ROADMAP §16, "One file per video"). The design the user chose:
+- **One JSON per video, which Track Tamer adds to**: its own `track_tamer`
+  object inside the video's `cameras` entry (test, setup, tracking settings,
+  analysis settings, its file names). Never change what the recording app
+  wrote; a video with no info file gets `<name>_info.json`.
+  `core/info_file.py` is the file on disk; `core/info.py` what it means.
+- **The tracking file is slim** (`_LocationOutput.csv` and startle's
+  `_MotionIndex.csv`): only per-frame columns on disk. Everything
+  it used to repeat on every row is in the info file, and
+  `loader.load_csv` / `asr.load_motion` put it back in memory. Startle's
+  stimuli aren't copied (read from the info file's `stimuli`, or the typed
+  frames kept there). What varies per stimulus (dB etc.) stays on every row
+  of the Trials table. Never write settings into the
+  tracking file again; older files that hold their own still load.
+- **A video added again comes back with its setup and tracking file**
+  (`VideoSetup.to_saved` / `restore`, `gui._restore_setup`).
+- **Where the info file and the setup disagree, the experimenter chooses**
+  in a side-by-side window (`dialogs.ask_side_by_side`).
+- **Workbook sheets:** Experiment (animal and task, down the page), Summary
+  (File, `animal_id`, measures: no tracking settings, no other animal
+  columns), Time Bins, Settings, Setup. Each video keeps its own files (no
+  combined table).
+- **The same words in every app**: the standard's field names. No `room` or
+  `app_name` columns. The capture apps keep a running log (24 fixed
+  columns) and no per-trial `_info.csv`.
+- **Puzzle Box** is also moved up (measures decided, ROADMAP "Build
+  order"); it waits for an example video. Conditioned place preference is
+  after 1.0.
 **Acoustic startle (ROADMAP §13) is built** (2026-11-09, on `main`, not released;
 the target for 1.0): test type "Acoustic Startle Response", `core/asr.py`, setup steps
 Threshold and Stimuli, `<name>_MotionIndex.csv`. Waiting on real chamber videos to

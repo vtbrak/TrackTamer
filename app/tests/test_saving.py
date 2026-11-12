@@ -70,8 +70,23 @@ ref_back = playback.load_reference(data)
 check("tracking file and reference image are saved in a folder with accented letters",
       data.n_frames == 2 and ref_back is not None and ref_back.shape == (422, 414)
       and int(ref_back[0, 0]) == 200)
-check("only the two result files are left in the folder",
-      sorted(os.listdir(folder)) == ["trial_LocationOutput.csv", "trial_reference.png"])
+check("the tracking file, the reference image and the video's info file are left in the folder",
+      sorted(os.listdir(folder)) == ["trial_LocationOutput.csv", "trial_info.json",
+                                     "trial_reference.png"])
+import json
+on_disk = pd.read_csv(paths["csv"])
+check("the tracking file on disk holds only what differs from frame to frame",
+      not ({"File", "Location_Thresh", "Crop", "Start_Frame", "Video_FPS", "ROI_coordinates"}
+           & set(on_disk.columns)) and {"Frame", "X", "Y", "Frame_Unreadable"} <= set(on_disk.columns))
+kept = json.load(open(paths["info"], encoding="utf-8"))["cameras"][0]
+check("what it used to repeat on every row is saved once, in the video's info file",
+      kept["video"] == "trial.mp4" and kept["track_tamer"]["tracking"]["File"] == "trial.mp4"
+      and kept["track_tamer"]["tracking"]["Video_FPS"] == 10.0
+      and kept["track_tamer"]["files"] == {"tracking": "trial_LocationOutput.csv",
+                                           "reference": "trial_reference.png"})
+check("and comes back when the file is loaded, so the rest of the app sees it as before",
+      data.name == "trial.mp4" and float(data.settings["Video_FPS"]) == 10.0
+      and "Crop" in data.settings and "File" in data.df.columns)
 back = playback.prep_from_settings(data.settings)
 check("the crop is recorded exactly, so playback cuts the same pixels as tracking did",
       back.crop == crop and back.dsmpl == 1.0)
@@ -80,10 +95,13 @@ check("an older file's crop (one decimal) is still read",
       == (80.0, 20.8, 502.4, 439.6))
 check("no crop is recorded as blank", tracking.crop_text(None) == "")
 
-before = read(paths["csv"]), read(paths["reference"])
+before = read(paths["csv"]), read(paths["reference"]), read(paths["info"])
 class Unwritable(pd.DataFrame):
     """A table whose save dies partway: some of the file is written, then
     the disk is full."""
+    @property
+    def _constructor(self):
+        return Unwritable
     def to_csv(self, path, *a, **k):
         with open(path, "w") as f:
             f.write("File,Frame\nhalf a")
@@ -93,9 +111,10 @@ try:
     raised = False
 except OSError:
     raised = True
-check("a tracking file that can't be written leaves the earlier file AND its reference",
-      raised and (read(paths["csv"]), read(paths["reference"])) == before
-      and len(os.listdir(folder)) == 2)
+check("a tracking file that can't be written leaves the earlier file, its reference "
+      "AND the info file",
+      raised and (read(paths["csv"]), read(paths["reference"]), read(paths["info"])) == before
+      and len(os.listdir(folder)) == 3)
 
 # --- scoring ---------------------------------------------------------------
 scoring = objects.Scoring()
