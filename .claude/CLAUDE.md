@@ -297,6 +297,13 @@ apps' pieces over time (an "Apps" section per app).
   columns) and no per-trial `_info.csv`.
 - **Puzzle Box** and conditioned place preference are **after 1.0** (user,
   2026-11-11; Puzzle Box's measures are decided, ROADMAP "Build order").
+**When the user asks for work on head-tail, start with ROADMAP §17 "Next:
+learn the head end from each video"** (user, 2026-11-12): the four ideas
+taken from AMADEUS (travel judged over a whole run; a small appearance model
+trained on each video's sure frames, with numpy and OpenCV only; label
+cleaning; blank when the outline is nearly round), each measured against the
+hand-checked frames and kept only if the plus maze improves. Ideas only: no
+AMADEUS code (AGPL), no PyTorch or YOLO.
 **Nose and rear end (ROADMAP §17) is built on the `head-tail` branch only**
 (2026-11-10; not in `main`, not released): `core/pose.py`; tracking writes
 `Nose_X`, `Nose_Y`, `Rear_X`, `Rear_Y` beside X and Y (the center, unchanged);

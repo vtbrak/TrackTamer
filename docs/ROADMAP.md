@@ -1772,6 +1772,10 @@ user the same day:
   (standard, section 4, `arena`).
 
 ### 17. Head and tail tracking (branch `head-tail`, started 2026-11-09)
+**FIRST when work on this branch resumes (user, 2026-11-12: "make it the
+first thing when i ask to do work on head-tail again"): the ideas taken
+from AMADEUS, below ("Next: learn the head end from each video").**
+
 Built on its own branch so `main` stays releasable. In `main`'s priority
 order, loading a video with a tracking file and conditioned place preference
 still come first; this branch is worked on alongside (user, 2026-11-09).
@@ -1947,6 +1951,59 @@ needs the plus maze work first: keep the silhouette to the drawn arms (walls
 and the reflection out), join pieces split by the bar across the arms, and
 cope with the smaller animal. Needed for head dips and stretches between arm
 and center. Not started.
+**Next: learn the head end from each video (ideas from AMADEUS; user,
+2026-11-12). First thing to do on this branch.** The user pointed to
+AMADEUS (github.com/jpmyrmecol/AMADEUS; Notomi, Matsumura and Dobata 2026,
+bioRxiv, doi 10.64898/2026.09.19.752854), an open-source multi-animal
+tracker that estimates head direction with no hand labeling. Read from its
+source (`main/direction_class_assignment.py`, `identify_incorrect_class_
+labels.py`), not run. What it does: fits a box to each isolated animal's
+outline (a long axis with two possible ends); over each unbroken run of
+frames it keeps the axis pointing the same way and picks the head end for
+the whole run as the end the animal moved toward, weighted by speed, only
+for runs that covered a set share of a body length (short runs and
+near-round outlines get no label); those frames then train a YOLO detector
+on that same video to recognise the head end by appearance; a first model's
+strong disagreements (90° or more) are dropped from the labels and it
+trains again; the model then labels every frame. Its front and rear points
+are the ends of the box, not the nose and tail base, so ours are already
+more precise.
+
+To try, in this order, each measured against the hand-checked frames (plus
+maze 34 of 54 right by eye; object trial 28 of 28) and **kept only if the
+plus maze score improves without the object trial getting worse**:
+1. **Travel judged over a whole run.** Today travel is one frame at a time
+   (±1 over 4 frames, `TRAVEL_MIN` 8 px) with a weight measured against
+   long-tail frames, and the plus maze has few long-tail frames to measure
+   with. Instead: over each stretch of sustained walking (net movement of a
+   set share of body length, the axis kept consistent frame to frame), a
+   speed-weighted vote for which end leads. Those stretches become a second
+   kind of "sure" frame beside the long tail, for `clue_weights` and to
+   anchor `resolve`.
+2. **A small appearance model trained on each video.** Take the sure frames
+   (long tail, or sustained walking), turn each picture of the animal so it
+   lies along one line at one size, and fit a simple classifier for "nose at
+   this end or that end" (each picture also gives its own mirror as the
+   opposite example). Its score becomes another clue in `resolve`, measured
+   like the others. It stands in for the hand-made ear and narrow-end clues
+   with whatever tells the ends apart in that video. **Written with what the
+   app already installs (numpy, OpenCV): no PyTorch or YOLO**, which AMADEUS
+   needs (it recommends a graphics card with 8 GB), so the app still
+   installs the same on Mac and Windows with its pinned packages.
+3. **Label cleaning.** Fit, drop the training frames the model strongly
+   disagrees with, fit again.
+4. **Blank when the outline is nearly round** (rearing, curled, grooming):
+   such a frame has no real ends, so it gets no nose or rear end and isn't
+   used for training.
+Not taken: its model and packages (above); its code (AMADEUS is
+AGPL-3.0-only and this app is GPL-3.0, so the ideas are used and the code
+is written here; the user cites the preprint); its multi-animal identity
+and synthetic contact images (one animal here).
+Risks: mice back out of plus maze arms (AMADEUS itself asks whether the
+animals move backward), which the speed weighting and the distance needed
+limit but don't remove; how much any of this helps isn't known until it's
+measured.
+
 **Planned: a DeepLabCut model to refine nose and rear end (user,
 2026-11-11).** Idea: bring in a model from DeepLabCut (a trained network that
 marks body parts in each frame) to make the nose and rear end more reliable
