@@ -80,6 +80,10 @@ DEFAULTS: dict = {
     "asr_startle_ms": 200.0,
     "asr_baseline_ms": 200.0,
     "asr_block_trials": 10,
+    # Plus maze, open field and object videos: warn after Analyze when more
+    # than this percent of a session's frames are ones the recording app
+    # repeated (the camera fell behind). Provisional; the user may change it.
+    "repeated_warn_pct": 5.0,
     # Plot style.
     "plot": {
         "point_size": 4.0,  # float so sizes like 2.5 survive a reload

@@ -459,8 +459,8 @@ Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
   `<data folder>_log.csv` (by default `Data/Data_log.csv`), with section
   1's 24 columns and words. It writes `_info.json` once and never rewrites
   it, so Track Tamer's `track_tamer` object is safe there.
-- **Not yet checked** with the lab's camera in a real session, or on Windows
-  (Boom Box's own status).
+- **Tested on the lab's equipment** (user, 2026-11-11): the app runs and
+  captures video there. **Not yet run with mice.**
 
 ### Pellet Paparazzi
 Skilled reaching recording. **Not analyzed in Track Tamer** (the task and

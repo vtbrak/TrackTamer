@@ -13,6 +13,7 @@ from matplotlib.patches import Rectangle
 from matplotlib.path import Path
 
 from .loader import TrackingData, parse_roi_coordinates
+from .metrics import spread_repeats
 from .regions import match_polygons
 
 # Default figure size (inches). Embedded figures stretch to fill their tab;
@@ -208,7 +209,8 @@ def path_figure(
     y = df["Y"].to_numpy()
 
     if color_by_speed and "Distance_px" in df.columns:
-        speed = df["Distance_px"].to_numpy()
+        # (a repeated frame's zero-then-double step is shared out: true speed)
+        speed = spread_repeats(df["Distance_px"].to_numpy(dtype=float), data.repeated)
         sc = ax.scatter(
             x, y, c=speed, cmap="viridis", s=point_size, alpha=alpha,
             edgecolors="none", zorder=2,

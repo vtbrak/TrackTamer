@@ -46,9 +46,12 @@ SETTINGS_COLUMNS = [
 ]
 
 # True/False columns that are not regions (Use_Window is a tracking setting;
-# Frame_Unreadable marks video frames that couldn't be read, and Frame_Filled
-# marks those given a position by gap filling).
-NON_REGION_BOOL_COLUMNS = {"ROI_transition", "Use_Window", "Frame_Unreadable", "Frame_Filled"}
+# Frame_Unreadable marks video frames that couldn't be read, Frame_Filled
+# those given a position by gap filling, and Frame_Repeated those the
+# recording app wrote as a copy of the frame before because the camera was
+# late).
+NON_REGION_BOOL_COLUMNS = {"ROI_transition", "Use_Window", "Frame_Unreadable", "Frame_Filled",
+                           "Frame_Repeated"}
 
 _BOOL_TEXT = {"true": True, "false": False, "1": True, "0": False}
 
@@ -78,6 +81,15 @@ class TrackingData:
     @property
     def n_frames(self) -> int:
         return len(self.df)
+
+    @property
+    def repeated(self) -> np.ndarray:
+        """Per-frame True where the recording app repeated the frame before
+        (the camera hadn't delivered a new one in time). All False for a
+        file that doesn't say."""
+        if "Frame_Repeated" not in self.df.columns:
+            return np.zeros(len(self.df), dtype=bool)
+        return self.df["Frame_Repeated"].to_numpy(dtype=bool)
 
     @property
     def unreadable(self) -> np.ndarray:

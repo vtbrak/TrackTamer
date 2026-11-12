@@ -267,7 +267,8 @@ def assemble_output(video_path: str, tracked: pd.DataFrame, params: TrackingPara
                     prep: Prep, start: int, regions: list[Region] | None,
                     shape: tuple[int, int], scale: Scale | None,
                     reference_frames: int, exclusion_count: int,
-                    fps: float, extra: dict | None = None) -> pd.DataFrame:
+                    fps: float, extra: dict | None = None,
+                    repeated: set | None = None) -> pd.DataFrame:
     """The full `_LocationOutput.csv` table: ezTrack's columns in ezTrack's
     order, then this app's additions (Frame_Unreadable and every setting
     used)."""
@@ -292,6 +293,10 @@ def assemble_output(video_path: str, tracked: pd.DataFrame, params: TrackingPara
     for name in BODY_POINT_COLUMNS:
         if name in tracked.columns:
             df[name] = tracked[name].round(2)
+    if repeated is not None:
+        # Video frames the recording app wrote as a copy of the one before
+        # (its info file lists them). Frame counts from 0 at `start`.
+        df["Frame_Repeated"] = (tracked["Frame"].astype(int) + int(start)).isin(repeated)
     df["Method"] = params.method
     df["Downsample"] = float(prep.dsmpl)
     df["Crop"] = crop_text(prep.crop)
@@ -362,6 +367,7 @@ def save_outputs(video_path: str, df: pd.DataFrame, reference: np.ndarray,
     info_path, text = info_file.prepare(video_path, {
         **(record or {}),
         "version": VERSION, "saved": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "setup_changed_since_tracking": False,
         "tracking": constants,
         "files": {"tracking": os.path.basename(paths["csv"]),
                   "reference": os.path.basename(paths["reference"])},

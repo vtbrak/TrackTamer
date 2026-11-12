@@ -194,10 +194,12 @@ class TrialInfo:
         return fps if fps and fps > 0 else None
 
     def problems(self, video_frames: int | None = None, video_fps: float | None = None,
-                 session_s: float | None = None) -> list[str]:
+                 session_s: float | None = None,
+                 video_size: tuple[int, int] | None = None) -> list[str]:
         """What the recording app's own record says went wrong, as short
         phrases: stopped early, shorter than the session, an encoder error,
-        frame counts that don't agree, a frame rate that isn't the video's."""
+        frame counts or a frame size that don't agree with the video, a
+        frame rate that isn't the video's."""
         out = []
         version = _number(self.raw.get("schema_version"))
         if version is not None and version > SCHEMA_VERSION:
@@ -222,6 +224,11 @@ class TrialInfo:
               and abs(frames - video_frames) > FRAME_COUNT_SLACK):
             out.append(f"the info file says {frames:g} frames, the video has "
                        f"{video_frames:,}")
+        wide, high = _number(self.camera.get("width_px")), _number(self.camera.get("height_px"))
+        if (video_size and wide is not None and high is not None
+                and (int(wide), int(high)) != tuple(video_size)):
+            out.append(f"the info file says the frames are {wide:g} x {high:g} px, the "
+                       f"video's are {video_size[0]} x {video_size[1]}")
         measured = self.fps_measured
         if measured and video_fps and abs(measured - video_fps) > 0.01 * video_fps:
             out.append(f"the measured frame rate ({measured:g} fps) isn't the video's "
@@ -315,6 +322,63 @@ def info_for_output(output_path: str) -> TrialInfo | None:
         return None
     path, raw, camera = found
     return TrialInfo(raw=raw, camera=camera, path=path)
+
+
+# --- a draft setup from the same arena --------------------------------------
+MAX_DRAFT_FILES = 400       # info files looked at when searching for a draft
+
+
+def _drawn(saved) -> bool:
+    return isinstance(saved, dict) and any(saved.get(k) for k in (
+        "crop", "regions", "exclusions", "scale_points", "objects"))
+
+
+def arena_draft(info: TrialInfo, video_path: str,
+                frame_size: tuple[int, int]) -> tuple[dict, str] | None:
+    """(saved setup, video name) from the last video tracked in the same
+    arena with the same camera, for use as a draft: the rig hasn't moved, so
+    its crop, regions and scale are a good start (the user still checks each
+    step; every video is analyzed against its own setup). Looks in the
+    video's folder and its sibling folders (the recording apps keep one
+    folder per day), and takes the most recently saved setup drawn on frames
+    of this size. None if there isn't one."""
+    arena, label = info.arena, _text(info.camera.get("label"))
+    if not arena:
+        return None
+    folder = os.path.dirname(os.path.abspath(video_path))
+    parent = os.path.dirname(folder)
+    folders = [folder]
+    try:
+        folders += sorted((os.path.join(parent, d) for d in os.listdir(parent)
+                           if os.path.isdir(os.path.join(parent, d))
+                           and os.path.join(parent, d) != folder), reverse=True)
+    except OSError:
+        pass
+    best, seen = None, 0
+    for place in folders:
+        try:
+            names = sorted(n for n in os.listdir(place) if n.endswith(INFO_ENDING))
+        except OSError:
+            continue
+        for name in names:
+            seen += 1
+            if seen > MAX_DRAFT_FILES:
+                break
+            raw = info_file.read(os.path.join(place, name))
+            if raw is None or _text(raw.get("arena")) != arena:
+                continue
+            for camera in info_file.cameras(raw):
+                own = camera.get(OWN)
+                saved = own.get("setup") if isinstance(own, dict) else None
+                if (not _drawn(saved) or _text(camera.get("label")) != label
+                        or (place == folder
+                            and camera.get("video") == os.path.basename(video_path))
+                        or list(saved.get("frame_size") or []) != list(frame_size)):
+                    continue
+                when = str(own.get("saved") or "")
+                if best is None or when > best[0]:
+                    best = (when, saved, str(camera.get("video") or name))
+    return (best[1], best[2]) if best else None
 
 
 # --- where the info file and the setup disagree ---------------------------

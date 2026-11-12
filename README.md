@@ -325,10 +325,30 @@ These apps save an `_info.json` beside each video. When such a video is
 added, Track Tamer reads it: the animal's ID shows beside the file, and the
 animal and task details go on the workbook's Experiment sheet. Where the
 info file and Track Tamer disagree (the test type, the session length, an
-object trial's day, phase or object types), a window shows both values side
-by side; tick the one that's right in each row. Problems the recording app
-noted (stopped early, an encoder error, frame counts that don't agree) are
-reported.
+object trial's day, phase or object types, the measured frame rate), a
+window shows both values side by side; tick the one that's right in each
+row. Problems the recording app noted (stopped early, an encoder error,
+frame counts or a frame size that don't agree with the video) are reported.
+
+**Repeated frames.** When a camera is late, the recording app writes the
+frame before again so the video keeps true time, and lists those frames.
+Track Tamer marks them in the tracking file (`Frame_Repeated`), counts them
+in the Summary (`RepeatedFrames`), and works out speed across each one, so a
+repeat doesn't show as a stop followed by a jump. Times and distances are
+unaffected. A session with more repeated frames than the **Warn at repeated
+frames (%)** setting (5% to begin with) is flagged after Analyze.
+
+A video's setup is saved in its info file when you close the setup window
+(and when it's tracked), so it comes back as you left it, part done or not.
+If a video comes back tracked with other tracking settings than the current
+ones, both are shown side by side so you can switch to the saved ones.
+
+The **Experiment** tab shows the selected file's animal and task as soon as
+it's added. When you open setup on a video with nothing drawn yet, it starts
+from the last video set up in the same arena with the same camera (from the
+list, or from the info files in the video's folder and the day folders
+beside it): its crop, exclusions, regions and scale come across as a draft,
+with no step ticked, so you still check each one.
 
 Only analyzed files are exported. If a workbook is open in Excel, close it
 before exporting again.

@@ -27,6 +27,11 @@ gui.show_warning = lambda p, t, m, **k: log.append(t)
 gui.show_info = lambda p, t, m, **k: log.append(t)
 gui.show_error = lambda p, t, m, **k: log.append(t)
 gui.ask_yes_no = lambda p, t, m, **k: (log.append(t), yesno.pop(0))[1]
+# The side-by-side choice: the queued side is ticked in every row (nothing
+# queued: the window is closed without choosing).
+sides = []
+gui.ask_side_by_side = lambda p, t, m, rows, *a, **k: (
+    log.append(t), [sides.pop(0)] * len(rows) if sides else None)[1]
 # A several-button question: a queued True picks the last button, False the
 # one before it, None closes the window (which cancels).
 def _choice(p, t, m, choices, default=None, **k):
@@ -518,8 +523,14 @@ if CLIP is not None:
     check("a tracked video analyzes", app.files[0].analyzed
           and app.file_tree.item("0", "values")[2] == "Analyzed")
     # C9: the exported Settings sheet describes the tracking and the video.
+    # (This export has come up empty on rare runs; these two checks say why
+    # if it does again.)
+    check("the tracked video is still the selected file", app._sel == [0])
     log.clear(); app.export(); app.update()
     vout = output_paths(CLIP); outs.extend(vout.values())
+    check("Export wrote the video's workbook", os.path.exists(vout["analysis"])
+          and "Export finished" in log)
+    print("   export said:", log)
     st = pd.read_excel(vout["analysis"], sheet_name="Settings")
     got = dict(zip(st["Setting"], st["Value"]))
     check("Settings sheet: tracking settings, scale, crop, session",
@@ -565,6 +576,23 @@ if CLIP is not None:
     app._set_selection([0], focus=0); app.analyze(); app.update()
     check("and analyzes without tracking again", back.analyzed
           and back.summary["Frames"] == want)
+    # Added again when the tracking settings have since changed: both are
+    # shown, and ticking the saved ones puts them back.
+    used = float(back.data.settings["Location_Thresh"])
+    app.files[0].summary = None; app.clear_files()
+    app.config_data["loc_thresh"] = used - 1.5; log.clear(); sides[:] = ["left"]
+    app.add_files([CLIP]); app.update()
+    check("a video tracked with other tracking settings: both are shown; keeping the current "
+          "ones changes nothing",
+          log == ["Which tracking settings?"] and app.config_data["loc_thresh"] == used - 1.5
+          and app.files[0].data is not None)
+    app.clear_files(); log.clear(); sides[:] = ["right"]
+    app.add_files([CLIP]); app.update()
+    check("ticking the saved ones sets them, ready to track again the same way",
+          log == ["Which tracking settings?"] and app.config_data["loc_thresh"] == used
+          and app.files[0].video.ready_for(app.test_var.get()))
+    app.clear_files(); log.clear(); app.add_files([CLIP]); app.update()
+    check("once they match, nothing is asked", log == [])
     app.files[0].summary = None
     for f in outs:
         if os.path.exists(f):
