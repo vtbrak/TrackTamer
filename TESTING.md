@@ -1,6 +1,6 @@
 # Testing Track Tamer
 
-Thank you for testing version 0.9.2! This page covers getting the program, what to try, and
+Thank you for testing version 0.9.3! This page covers getting the program, what to try, and
 how to report problems. Plan on about 15 minutes to install, then as long as
 you like to test.
 
@@ -39,8 +39,10 @@ If the computer blocks a file:
 Stuck? [INSTALL.md](INSTALL.md) has more detail, including a way to install
 on a Mac without an administrator password.
 
-**Already installed an earlier version** (called "Behavior Tracker")? Run
-**Install Track Tamer** again: the new version uses a new environment.
+**Already installed an earlier version?** Replace the old program folder with
+the new one and run **Install Track Tamer** again before opening it: 0.9.3
+installs the exact package versions it was tested with, and Install updates
+your existing environment to match.
 
 ---
 
@@ -53,6 +55,11 @@ not just crashes.
 1. In the main window, choose the **Test** (Elevated Plus Maze, Open Field or
    Object Recognition).
 2. **Add files…** and pick a video (or drag it onto the window).
+   - If the video has no `_info.json` beside it (any video not recorded with
+     Creature Capture or Boom Box), a window asks whether there's an info
+     file for it. **Choose Info File…**, **Add Animal Information…** (animal
+     ID, sex, strain, treatment and so on), or just click **Done**.
+   - The **Experiment** tab shows the animal and task for the selected file.
 3. Click **Set up videos…** and go through the six steps:
    1. **Trim and crop:** move the slider to when the animal is placed, click
       **Set start here**, and drag a box around the arena.
@@ -68,15 +75,15 @@ not just crashes.
 5. Click **Analyze**, then look at the **Summary**, **Time Bins**, **Path**
    and **Heatmap** tabs.
 6. Click **Export**. Check the `_analysis.xlsx` and the two pictures saved
-   beside the video. The workbook has Experiment, Summary, Time Bins,
-   Settings and Setup sheets.
-   (When you add a video that has no `_info.json` beside it, a window asks
-   whether there's an info file for it. Choose one, add the animal's
-   information, or just click **Done**.)
+   beside the video. The workbook has **Experiment**, **Summary**, **Time
+   Bins**, **Settings** and **Setup** sheets.
 7. Click **Clear**, then add the same video again. It should come back
    already set up and tracked (status **Not analyzed**), with its regions as
    you drew them, and Analyze should work straight away. That comes from the
-   `_info.json` file beside the video.
+   `_info.json` file beside the video: keep it with the video.
+8. If you have a second video from the same arena, open **Set up videos…** on
+   it: it should start from the first video's crop and regions, with no step
+   ticked, for you to check.
 
 ### B. Elevated Plus Maze or Open Field
 - In step 5, draw each region by clicking around it (click the first point
@@ -116,9 +123,20 @@ not just crashes.
 3. Step 4 (**Stimuli**) uses the recording's info file if it has one.
    Otherwise type the video frame of each stimulus.
 4. Click **Track**, then **Analyze**, and look at **Trials**, **Motion Trace**
-   and **Aligned Trials**. Then click **Export**.
+   and **Aligned Trials**. For a session that steps through sound levels
+   (Boom Box's Hearing Test or I/O), look at **Startle by Level** too: the
+   amplitude at each level and the startle threshold. Then click **Export**.
 5. Open the **Review** tab and click a startle. In the playback window, use
    **Next trial**, **Go to peak** and the frame buttons.
+
+### E. Videos from Creature Capture or Boom Box
+1. Add a video together with the `_info.json` its app saved beside it.
+2. If Track Tamer's test or session length differs from the info file's, a
+   window shows both side by side: tick the one that's right in each row.
+3. Check the animal's ID beside the file, and the **Experiment** tab.
+4. If the recording app had to repeat frames (the camera fell behind), the
+   Summary counts them (`RepeatedFrames`), and a session with more than the
+   **Warn at repeated frames (%)** setting is flagged after Analyze.
 
 ---
 
@@ -138,3 +156,5 @@ help:
 ### Known limitations
 - Windows has had less testing than Mac, so Windows reports are especially
   useful.
+- Videos tracked with 0.9.2 or earlier have no saved setup, so they need
+  setting up again (their old tracking files still load and analyze).

@@ -195,10 +195,17 @@ first PC test when they're ready). **ROADMAP "Build order" is
 the source of truth.**
 **What to build next:** see "Priority order for what's next" in ROADMAP
 "Build order" (user, 2026-11-09). Nothing on it starts until the user asks.
-**Version 0.9.2** (2026-11-09; 0.9 was 2026-11-05, the testing release; user chose 0.x): `core/version.py`
-holds `VERSION` (About window, exported Settings sheet); git tags `v0.9`, `v0.9.1`, `v0.9.2`
+**Version 0.9.3** (2026-11-12; 0.9.2 was 2026-11-09, 0.9 was 2026-11-05, the testing release; user chose 0.x): `core/version.py`
+holds `VERSION` (About window, exported Settings sheet); git tags `v0.9`, `v0.9.1`, `v0.9.2`, `v0.9.3`
 (GitHub pre-release). Fixes from testers go out as 0.9.1, 0.9.2, …; 1.0 comes
 after testing. Bump `VERSION` and tag for each release.
+**Every GitHub release is tagged** (user, 2026-11-12: "make sure that all
+github releases are tagged starting with this one"): bump `VERSION`, commit,
+make an annotated tag `v<VERSION>` on that commit, push the commit and the
+tag, and only then create the release from that tag (API `tag_name`
+`v<VERSION>`, never a branch name). Check afterwards that the release's tag
+is on GitHub (`git ls-remote --tags origin`). v0.9, v0.9.1 and v0.9.2 were
+checked on 2026-11-12: each release has its annotated tag.
 **`video-tracking` was merged into `main` on 2026-11-05** (fast-forward) for
 the user's first outside testers; work continues on `main`, and the
 `video-tracking` branch was deleted (local and GitHub) the same day. Tester guide:
