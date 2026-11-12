@@ -2188,6 +2188,18 @@ vanishes.
   no info file, startle repeats warning and startle by sound level.
   **From this release on, every GitHub release is made from a pushed
   annotated tag `v<version>`** (user, 2026-11-12).
+- ✅ **Settings survive updates (2026-11-12, after 0.9.3).** Boom Box found
+  that its users' own files sat among the program files, so updating lost
+  them, and that it saved full paths into its own folder; the user asked
+  every app in the suite to check ("let other apps in the suite know about
+  this weakness and have them do the same thing"). Track Tamer had the
+  first: `app/config.json` sat in the program folder the update guide said
+  to replace. Now everything the user sets up is in `app/config/`
+  (`core/config.py`: `CONFIG_DIR`; an old `app/config.json` or project-
+  folder `config.json` is moved in at startup, never writing over one that's
+  there: identical copies dropped, different ones kept as `config_2.json`),
+  and INSTALL.md's update steps say to copy that folder. It had none of the
+  second (no saved paths into its own folder). Tests in `test_layout.py`.
 - ✅ **Jumps to a video frame match in-order reading (2026-11-10, not
   released).** The camera videos store each frame's real capture time, so
   their frames aren't evenly spaced (gaps of 34–123 ms in one EPM video).

@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 .DS_Store
 config.json
+# Everything the user sets up (app/config: the folder to copy when updating)
+app/config/
 
 # Tracking data (large; research data stays off GitHub)
 *.csv

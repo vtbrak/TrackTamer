@@ -12,14 +12,24 @@ new program files go in `app/`, new documents in `docs/`**
 (`app/tests/test_layout.py` checks). Everything else:
 - `app/`: the program (`gui.py` and the other windows, `core/`, `tests/`,
   `requirements.txt`, `environment.yml`, `find_conda.sh` / `.bat`), plus,
-  not in git, `config.json`, `.venv` and the `ezTrack/` reference copy.
+  not in git, `config/`, `.venv` and the `ezTrack/` reference copy.
+- **`app/config/` holds everything the user sets up** (user, 2026-11-12, the
+  same rule as Boom Box 1.3.7 for the whole suite): today only
+  `config.json`. Updating = replace the program folder, copy `app/config`
+  across (INSTALL.md). **Anything new the user creates or edits goes in
+  app/config too, never beside the program files.** A file found in an old
+  place is moved in at startup and nothing is ever written over (identical
+  copies dropped, different ones kept as `_2`). **Never save a full path to
+  anything inside Track Tamer's own folder**; today none is saved (the file
+  pickers don't remember a folder, and info files keep file names only).
+  Paths to the user's videos elsewhere are fine.
   The launchers `cd` into `app` first, so paths inside them are as before.
 - `docs/`: `ROADMAP.md`, `metadata_standard.md`.
 - `.claude/CLAUDE.md`: this file.
 - `Examples/` (not in git): the user's test videos, beside `app`.
 File names below such as `core/...`, `gui.py` and `tests/...` are inside
-`app/`. A `config.json` left in the project folder by an older version is
-moved into `app/` the first time the app runs.
+`app/`. A `config.json` left by an older version (in `app/` or the project
+folder) is moved into `app/config/` the first time the app runs.
 
 ## What this is
 A desktop app ("Track Tamer") that analyzes video-based rodent locomotion

@@ -121,9 +121,25 @@ is blocked:
 ---
 
 ## Updating the program
-- Replace the program folder with the new version.
-- Run the installer again (Step 3 of Method 1, or Step 4 of Method 2). It
-  updates what's already installed, so it's faster the second time.
+1. **Keep your settings:** in the old program folder, open `app` and copy
+   the **`config`** folder somewhere safe. It holds everything you've set in
+   Track Tamer (thresholds, tracking settings, the region matches you chose,
+   remembered session and scale lengths, plot style).
+   - Updating from **0.9.3 or earlier**: there's no `config` folder yet;
+     copy the file **`config.json`** instead (in `app`, or for 0.9.2 and
+     earlier in the program folder itself).
+2. Replace the program folder with the new version.
+3. Put what you copied back into the new folder's `app` folder: the
+   `config` folder, or the `config.json` file (the program moves it into
+   `app/config` the first time it opens).
+4. Run the installer again (Step 3 of Method 1, or Step 4 of Method 2). It
+   updates what's already installed, so it's faster the second time.
+
+Your videos, tracking files, info files and results are kept beside your
+videos, outside the program folder, so updating doesn't touch them. (Keep
+them out of the program folder for that reason.) Without Anaconda, the
+program's own Python environment (`app/.venv`) is rebuilt automatically the
+first time the new version opens.
 - If the program ever says *"the program's package list has changed since it
   was installed"*, that also means: run the installer again.
 

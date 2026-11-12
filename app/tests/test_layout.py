@@ -58,27 +58,44 @@ for name in LAUNCHERS:
 from about import ROOT as ABOUT_ROOT
 check("the About window finds LICENSE", os.path.exists(os.path.join(ABOUT_ROOT, "LICENSE")))
 
-# The settings file: in app now; one left in the old place is moved over.
+# The settings file: in app/config, the one folder to copy when updating;
+# one left in an old place is moved over, and nothing is ever replaced.
 from core import config
-check("settings are kept in the app folder", os.path.dirname(config.CONFIG_PATH) == APP)
+check("settings are kept in app/config", config.CONFIG_DIR == os.path.join(APP, "config")
+      and os.path.dirname(config.CONFIG_PATH) == config.CONFIG_DIR)
 with tempfile.TemporaryDirectory() as tmp:
-    old, new = os.path.join(tmp, "config.json"), os.path.join(tmp, "app", "config.json")
+    folder = os.path.join(tmp, "app", "config")
+    new = os.path.join(folder, "config.json")
+    in_app, in_project = os.path.join(tmp, "app", "config.json"), os.path.join(tmp, "config.json")
     os.mkdir(os.path.join(tmp, "app"))
-    json.dump({"fps": 12.5}, open(old, "w"))
-    keep = config.CONFIG_PATH, config._OLD_CONFIG_PATH
-    config.CONFIG_PATH, config._OLD_CONFIG_PATH = new, old
+    keep = config.CONFIG_DIR, config.CONFIG_PATH, config._OLD_CONFIG_PATHS
+    config.CONFIG_DIR, config.CONFIG_PATH = folder, new
+    config._OLD_CONFIG_PATHS = (in_app, in_project)
     try:
+        json.dump({"fps": 12.5}, open(in_app, "w"))
         config.load_config(os.path.join(tmp, "elsewhere.json"))   # some other file
-        check("loading some other settings file moves nothing", os.path.exists(old))
+        check("loading some other settings file moves nothing", os.path.exists(in_app))
         config.load_config(new)                                   # the program's own
-        check("settings from the old place are moved to the app folder",
-              not os.path.exists(old) and config.load_config(new)["fps"] == 12.5)
-        json.dump({"fps": 99.0}, open(old, "w"))
+        check("0.9.3's app/config.json is moved into app/config",
+              not os.path.exists(in_app) and config.load_config(new)["fps"] == 12.5)
+        json.dump({"fps": 12.5}, open(in_project, "w"))
         config._adopt_old_config()
-        check("settings already in the app folder are never overwritten",
-              config.load_config(new)["fps"] == 12.5 and os.path.exists(old))
+        check("an identical copy left in an older place is dropped",
+              not os.path.exists(in_project) and sorted(os.listdir(folder)) == ["config.json"])
+        json.dump({"fps": 99.0}, open(in_project, "w"))
+        json.dump({"fps": 88.0}, open(in_app, "w"))
+        config._adopt_old_config()
+        check("different ones are never written over: kept beside it as config_2, config_3",
+              config.load_config(new)["fps"] == 12.5
+              and sorted(os.listdir(folder)) == ["config.json", "config_2.json", "config_3.json"]
+              and {json.load(open(os.path.join(folder, f)))["fps"]
+                   for f in ("config_2.json", "config_3.json")} == {99.0, 88.0}
+              and not os.path.exists(in_app) and not os.path.exists(in_project))
+        fresh = os.path.join(tmp, "fresh", "config", "config.json")
+        config.save_config({"fps": 7.0}, fresh)
+        check("the first save makes app/config if it isn't there", json.load(open(fresh))["fps"] == 7.0)
     finally:
-        config.CONFIG_PATH, config._OLD_CONFIG_PATH = keep
+        config.CONFIG_DIR, config.CONFIG_PATH, config._OLD_CONFIG_PATHS = keep
 
 print(f"\n{fails} failure(s)")
 sys.exit(1 if fails else 0)
