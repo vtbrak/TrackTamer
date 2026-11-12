@@ -31,7 +31,8 @@ import pandas as pd
 
 from .loader import TrackingData
 from .metrics import carry_over_gaps, secs
-from .safe_write import write_csv
+from . import info_file
+from .safe_write import replacing, write_csv
 
 KINDS = ("Familiar", "Novel", "Moved")
 PHASES = ("Habituation", "Training", "Test")
@@ -94,8 +95,9 @@ def trial_info(data: TrackingData) -> tuple[str, str]:
 
 def update_trial_info(data: TrackingData, kinds: dict[str, str], day: str, phase: str) -> None:
     """Change each object's type, the trial day and the phase after tracking
-    (ROADMAP §15). They're saved in the tracking file, where tracking first
-    wrote them. Only those columns change: every other value is written back
+    (ROADMAP §15). They're saved where tracking wrote them: the video's
+    info file, or the tracking file itself if it's an older one that holds
+    its own settings. Only those values change: every other value is written back
     exactly as it was read, and a failed save leaves the file as it was
     (OSError if it can't be saved, e.g. the file is open in Excel)."""
     objects = file_objects(data)
@@ -105,9 +107,18 @@ def update_trial_info(data: TrackingData, kinds: dict[str, str], day: str, phase
     values = {"Objects": objects_to_text(objects), "Trial_Day": str(day).strip(),
               "Trial_Phase": phase if phase in PHASES else ""}
     table = pd.read_csv(data.path, dtype=str, keep_default_na=False)
-    for column, value in values.items():
-        table[column] = value
-    write_csv(table, data.path)
+    if any(column in table.columns for column in values):
+        for column, value in values.items():   # an older file: it holds them itself
+            table[column] = value
+        write_csv(table, data.path)
+    else:
+        # A slim tracking file: they're in the video's info file.
+        update = info_file.update_saved_columns(data.path, values)
+        if update is None:
+            raise OSError("The video's info file wasn't found beside the tracking file.")
+        with replacing(update[0]) as tmp:
+            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+                f.write(update[1])
     data.settings.update(values)
     for column, value in values.items():
         data.df[column] = value

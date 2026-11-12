@@ -149,8 +149,18 @@ check("export writes the workbook and two images",
       {"clip_analysis.xlsx", "clip_trace.png", "clip_aligned.png", "clip_MotionIndex.csv"} <= set(files)
       and "Export finished" in log)
 sheets = pd.read_excel(os.path.join(tmp, "clip_analysis.xlsx"), sheet_name=None)
-check("workbook has Summary, Trials and Settings",
-      list(sheets) == ["Summary", "Trials", "Settings"] and "Startle amplitude" in sheets["Trials"])
+check("workbook has Experiment, Summary, Trials, Settings and Setup",
+      list(sheets) == ["Experiment", "Summary", "Trials", "Settings", "Setup"]
+      and "Startle amplitude" in sheets["Trials"])
+import json
+saved = json.load(open(os.path.join(tmp, "clip_info.json")))["cameras"][0]
+check("a video with no info file gets one, with the startle setup and the typed stimuli",
+      saved["video"] == "clip.mp4" and saved["track_tamer"]["test"] == "Acoustic Startle Response"
+      and saved["track_tamer"]["setup"]["stimulus_frames"] == [50]
+      and saved["track_tamer"]["files"]["tracking"] == "clip_MotionIndex.csv"
+      and saved["track_tamer"]["files"]["analysis"] == "clip_analysis.xlsx")
+setup_rows = dict(zip(sheets["Setup"]["Setting"], sheets["Setup"]["Value"]))
+check("the Setup sheet lists the typed stimulus frames", str(setup_rows["Video frames"]) == "50")
 got = dict(zip(sheets["Settings"]["Setting"], sheets["Settings"]["Value"]))
 check("Settings records the threshold and windows",
       float(got["Intensity threshold"]) == 15 and float(got["Startle window (ms)"]) == 200
@@ -170,9 +180,12 @@ check("a video with no repeated frames isn't warned about", "Most frames are rep
 # A camera that really ran at a third of the video's rate (Boom Box on a Mac
 # before 1.3.4): two of every three frames are copies.
 slow = pd.read_csv(os.path.join(tmp, "clip_MotionIndex.csv"))
+check("the motion file on disk keeps only per-frame columns",
+      list(slow.columns) == ["Frame", "Time_s", "MotionIndex_pct", "AboveThreshold_px",
+                             "Frame_Unreadable", "Repeated"])
 slow["Repeated"] = [i % 3 != 0 for i in range(len(slow))]
-slow.to_csv(os.path.join(tmp, "slow_MotionIndex.csv"), index=False)
-app.clear_files(); app.add_files([os.path.join(tmp, "slow_MotionIndex.csv")]); app.update()
+slow.to_csv(os.path.join(tmp, "clip_MotionIndex.csv"), index=False)
+app.clear_files(); app.add_files([os.path.join(tmp, "clip_MotionIndex.csv")]); app.update()
 shown = []
 gui.show_warning = lambda p, t, m, **k: (log.append(t), shown.append(m))
 log.clear(); app._set_selection([0], focus=0); app.analyze(); app.update()

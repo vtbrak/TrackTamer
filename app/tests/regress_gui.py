@@ -57,12 +57,14 @@ lockw = lambda: tuple(str(w.cget("state")) for w in (app.test_box, app.fps_entry
                                                      app.entry_entry, app.gap_entry, app.adj_entry,
                                                      app.smooth_entry))
 UN, LK = ("readonly",) + ("normal",) * 6, ("disabled",) * 7
-rows = lambda: [app.summary_tree.item(i, "values")[:2] for i in app.summary_tree.get_children()]
+# (File, Status) of each Summary row; the animal's ID sits between them.
+rows = lambda: [app.summary_tree.item(i, "values")[0:3:2] for i in app.summary_tree.get_children()]
 
 check("unlocked at start", lockw() == UN)
 app.add_files([O]); app.update()
 check("unlocked after add, no prompts", lockw() == UN and not log and not dialogs)
-check("Status column after File", list(app.summary_tree["columns"])[:2] == ["File", "Status"])
+check("File, the animal's ID, then Status",
+      list(app.summary_tree["columns"])[:3] == ["File", "animal_id", "Status"])
 check("tabs say not analyzed", "isn't analyzed" in app.bins_note.get())
 app.test_var.set("Open Field"); app._on_test_type(); app.bin_var.set("30"); app.update()
 check("Open Field row shown for Open Field", bool(app.of_bar.winfo_manager()))
@@ -120,10 +122,12 @@ KEY = ["EPM_ClosedOpenRatio", "EPM_Center_s", "EPM_PctSession_Center", "EPM_Open
        "EPM_PctOpenTime", "EPM_ClosedArm_s", "EPM_PctClosedTime", "EPM_OpenEntries",
        "EPM_ClosedEntries"]
 check("EPM Summary shows the key measures by default, in the user's order",
-      list(app.summary_tree["columns"]) == ["File", "Status"] + KEY)
+      list(app.summary_tree["columns"]) == ["File", "animal_id", "Status"] + KEY)
 r0 = app.files[0].summary
-check("summary row: File, then the key measures; open/closed ratio kept in the details",
-      list(r0)[:10] == ["File"] + KEY and "EPM_OpenClosedRatio" in r0
+check("summary row: File, the animal's ID, then the key measures; open/closed ratio kept "
+      "in the details; the tracking settings aren't repeated in it",
+      list(r0)[:11] == ["File", "animal_id"] + KEY and "EPM_OpenClosedRatio" in r0
+      and not {"Location_Thresh", "Crop", "Video_FPS"} & set(r0)
       and abs(r0["EPM_PctOpenTime"] + r0["EPM_PctClosedTime"] - 100) < 0.2)
 check("Time Bins start with Bin, Start, End, then the key measures",
       list(app.files[0].bins.columns)[:12] == ["Bin", "Start_s", "End_s"]
@@ -134,7 +138,7 @@ check("EPM: the center's per-region columns (repeats of EPM center) are dropped"
       and "Time_open arm 1_s" in r0 and "EPM_Center_s" in r0)
 app.group_vars["test"].set(True); app._show_summary()
 check("More test measures adds the other EPM columns after the key ones",
-      list(app.summary_tree["columns"])[:11] == ["File", "Status"] + KEY
+      list(app.summary_tree["columns"])[:12] == ["File", "animal_id", "Status"] + KEY
       and "EPM_OpenClosedRatio" in app.summary_tree["columns"])
 app.group_vars["test"].set(False); app._show_summary()
 check("Time Bins include EPM measures", {"EPM_OpenEntries", "EPM_AnxietyIndex", "EPM_PctOpenTime"} <= set(app.files[0].bins.columns))
@@ -152,9 +156,18 @@ log.clear(); app.export(); app.update()
 out = output_paths(E2)
 check("export writes _analysis.xlsx, _path.png, _heatmap.png", all(os.path.exists(p) for p in out.values()))
 sheets = pd.read_excel(out["analysis"], sheet_name=None)
-check("workbook sheets", list(sheets) == ["Summary", "Time Bins", "Settings"])
-check("exported Summary starts with File and the key measures",
-      list(sheets["Summary"].columns)[:10] == ["File"] + KEY)
+check("workbook sheets (no Setup sheet for a tracking file with no saved setup)",
+      list(sheets) == ["Experiment", "Summary", "Time Bins", "Settings"])
+check("exported Summary starts with File, the animal's ID and the key measures",
+      list(sheets["Summary"].columns)[:11] == ["File", "animal_id"] + KEY)
+page = sheets["Experiment"]
+check("the Experiment sheet lists the file, the animal and the task down the page, "
+      "blank where nothing was recorded",
+      list(page.columns) == ["Section", "Field", "Value"]
+      and list(page["Section"].drop_duplicates()) == ["File", "Animal", "Task"]
+      and {"Animal ID", "Treatment / group", "Assay", "Length set (min)"} <= set(page["Field"])
+      and page.loc[page["Field"] == "Test", "Value"].iloc[0] == "Elevated Plus Maze"
+      and page.loc[page["Field"] == "Animal ID", "Value"].isna().all())
 check("exported Time Bins sheet has the EPM measures", "EPM_AnxietyIndex" in sheets["Time Bins"].columns)
 names = set(sheets["Settings"]["Setting"])
 check("settings sheet lists entry rule, bins, plot style",
@@ -515,14 +528,51 @@ if CLIP is not None:
           and str(got.get("Crop (x0, y0, x1, y1 in downsampled px)")).startswith("100")
           and abs(float(got.get("Session length (min)")) - round(want / v.info.fps / 60, 3)) < 1e-6
           and set(st["Section"]) >= {"Tracking (recorded in the file)", "Video"})
-    app.files[0].video.steps_done.discard("scale"); app.files[0].summary = None
+    book = pd.read_excel(vout["analysis"], sheet_name=None)
+    plan = dict(zip(book["Setup"]["Setting"], book["Setup"]["Value"]))
+    check("the workbook has a Setup sheet with the crop, regions and scale as numbers",
+          list(book) == ["Experiment", "Summary", "Time Bins", "Settings", "Setup"]
+          and str(plan["Crop (x0, y0, x1, y1)"]).startswith("100.0, ")
+          and set(v.regions) <= set(plan) and float(plan["Scale length (cm)"]) == v.scale_cm)
+    print("   Setup sheet rows:", list(plan))
+    # The video's info file: made by Track Tamer (the clip has none), holding
+    # its setup, tracking settings and files, so the video comes back as it was.
+    info_path = os.path.splitext(CLIP)[0] + "_info.json"; outs.append(info_path)
+    own = json.load(open(info_path, encoding="utf-8"))["cameras"][0]["track_tamer"]
+    check("the video's info file holds the test, setup, tracking settings and file names",
+          own["test"] == "Open Field" and own["setup"]["crop"][0] == 100.0
+          and set(own["setup"]["regions"]) == set(v.regions)
+          and own["tracking"]["Method"] == "dark"
+          and own["files"]["tracking"] == os.path.basename(outs[0])
+          and own["files"]["analysis"] == os.path.basename(vout["analysis"])
+          and "Frame rate (fps)" in own["analysis"])
+    slim = pd.read_csv(outs[0], nrows=2)
+    check("the tracking file on disk keeps only per-frame columns",
+          not {"File", "Crop", "Location_Thresh", "ROI_coordinates"} & set(slim.columns)
+          and {"Frame", "X", "Y", "center", "periphery"} <= set(slim.columns))
+    was = (v.start, v.end_frame, v.crop, {n: list(map(list, p)) for n, p in v.regions.items()},
+           v.scale_points, v.scale_cm)
+    app.files[0].summary = None
+    app.clear_files(); log.clear(); app.add_files([CLIP]); app.update()
+    back = app.files[0]; v2 = back.video
+    check("a tracked video added again comes back as it was: setup, reference and tracking file",
+          back.restored and back.data is not None and back.data.n_frames == want
+          and (v2.start, v2.end_frame, v2.crop,
+               {n: list(map(list, p)) for n, p in v2.regions.items()},
+               v2.scale_points, v2.scale_cm) == was
+          and v2.reference is not None and v2.ready_for(app.test_var.get())
+          and app.file_tree.item("0", "values")[2] == "Not analyzed" and log == [])
+    app._set_selection([0], focus=0); app.analyze(); app.update()
+    check("and analyzes without tracking again", back.analyzed
+          and back.summary["Frames"] == want)
+    app.files[0].summary = None
+    for f in outs:
+        if os.path.exists(f):
+            os.remove(f)
     app.clear_files(); app.add_files([CLIP]); app.update(); log.clear(); yesno[:] = [False]
     app.track(); app.update()
     check("a video not set up is skipped and named", "Some videos aren't set up yet" in log
           and app._runner is None)
-    for f in outs:
-        if os.path.exists(f):
-            os.remove(f)
     app.clear_files()
     app.test_var.set("Elevated Plus Maze"); app._on_test_type()
 else:

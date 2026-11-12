@@ -58,6 +58,10 @@ class TrackJob:
     # margin in pixels. See core/pose.py `arena_mask`.
     arena_parts: list | None = None
     arena_margin: float = 0.0
+    # For the video's info file: the test and the setup as tracked, and the
+    # camera label of a renamed video's entry in that file.
+    record: dict | None = None
+    label: str | None = None
 
 
 HEAD_DIP_MARGIN_CM = 2.0     # how far past an open arm's edge the outline may reach
@@ -98,6 +102,7 @@ def make_job(setup: VideoSetup, params: TrackingParams, dsmpl: float,
         arena_parts=arena_parts(setup.tracking_regions(dsmpl, test), test),
         arena_margin=(HEAD_DIP_MARGIN_CM / setup.scale(dsmpl).cm_per_px
                       if setup.scale(dsmpl) else 0.0),
+        record={"test": test, "setup": setup.to_saved()},
     )
 
 
@@ -134,7 +139,7 @@ def run_job(job: TrackJob, progress=None, should_cancel=None,
     out = assemble_output(job.path, result.df, job.params, job.prep, job.start,
                           job.regions, job.shape, job.scale, job.reference_frames,
                           job.exclusion_count, job.fps, extra=job.extra)
-    paths = save_outputs(job.path, out, reference)
+    paths = save_outputs(job.path, out, reference, job.record, job.label)
     data = load_csv(paths["csv"])
     data.missing_at_end = result.missing_at_end     # for the finished message
     return data, paths["csv"]

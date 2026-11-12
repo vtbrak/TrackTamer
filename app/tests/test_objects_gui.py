@@ -120,9 +120,10 @@ job = make_job(v, __import__("core.tracking", fromlist=["x"]).TrackingParams(), 
                "Object Recognition")
 data, csv = run_job(job)
 df = pd.read_csv(csv)
-check("the tracking file has the objects, day and phase", file_ok := (
-    "Objects" in df.columns and str(df["Trial_Day"].iloc[0]) == "3"
-    and df["Trial_Phase"].iloc[0] == "Test"))
+check("the tracking file keeps only per-frame columns; the objects, day and phase are in the "
+      "video's info file and come back when it's loaded", file_ok := (
+    "Objects" not in df.columns and "Objects" in data.settings
+    and str(data.settings["Trial_Day"]) == "3" and data.settings["Trial_Phase"] == "Test"))
 # Put object 1 where the animal is at frame 100, so there's a zone visit.
 x0, y0 = df["X"].iloc[100], df["Y"].iloc[100]
 df["Objects"] = objects_to_text([TrialObject("object 1", x0 + 30, y0, 20, "Familiar"),

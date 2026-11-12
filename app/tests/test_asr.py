@@ -178,17 +178,49 @@ try:
           csv.endswith("_MotionIndex.csv") and abs(data.df["Time_s"][59] - 2.0) < 1e-3)
     check("repeated frames are recorded from the frames file",
           bool(data.df["Repeated"][60]) and not data.df["Repeated"][59])
+    on_disk = pd.read_csv(csv)
+    check("the motion file on disk holds only what differs from frame to frame",
+          list(on_disk.columns) == ["Frame", "Time_s", "MotionIndex_pct", "AboveThreshold_px",
+                                    "Frame_Unreadable", "Repeated"])
+    own = json.load(open(os.path.join(tmp, "2026-11-05_16-56-42_ASR1_info.json"),
+                         encoding="utf-8"))
+    kept = own["cameras"][0]["track_tamer"]["tracking"]
+    check("what is one value for the video is saved once in its info file, without a copy "
+          "of the stimuli",
+          kept["File"] == os.path.basename(video) and kept["Intensity_Threshold"] == 15
+          and kept["Total_px"] == data.df["Total_px"].max() > 0
+          and kept["Stimulus_Source"] == "info file" and "Stimuli" not in kept
+          and "Stimulus_Frames" not in kept and len(own["stimuli"]) == 2)
     back = load_motion(csv)
-    check("the file reloads with its stimuli and threshold",
+    check("the file reloads with its stimuli, threshold and pixel count",
           back.settings["Intensity_Threshold"] == 15 and back.regions == []
-          and back.settings["Stimulus_Source"] == "info file")
+          and back.settings["Stimulus_Source"] == "info file"
+          and back.name == os.path.basename(video) and "Total_px" in back.df.columns)
     s, tt = asr_summary(back)
     check("summary row and trials from the file", s["ASR_Trials"] == 1 and len(tt) == 1
           and s["IntensityThreshold"] == 15 and tt["Pulse_dB"][0] == 120)
     other = os.path.join(tmp, "plain.mp4"); shutil.copy(ASR_CLIP, other)
     data, _ = run_asr_job(AsrJob(other, Prep(), 0, 101, None, 15.0, 30.0, 0, [50]))
-    check("without an info file, typed frames are used",
-          data.settings["Stimulus_Source"] == "typed in")
+    from core.asr import file_stimuli
+    typed = json.load(open(os.path.join(tmp, "plain_info.json"), encoding="utf-8"))
+    check("without an info file, typed frames are used, and kept in the info file made "
+          "for the video",
+          data.settings["Stimulus_Source"] == "typed in"
+          and file_stimuli(data) == [{"frame": 50, "type": "pulse"}]
+          and typed["cameras"][0]["track_tamer"]["tracking"]["Stimulus_Frames"] == [50])
+    older = os.path.join(tmp, "older_MotionIndex.csv")
+    full = data.df.copy(); full["Stimuli"] = ""
+    full.loc[0, "Stimuli"] = json.dumps([{"frame": 70, "type": "pulse"}])
+    full.to_csv(older, index=False)
+    old_file = load_motion(older)
+    check("an older motion file that holds its own settings and stimuli still loads",
+          file_stimuli(old_file) == [{"frame": 70, "type": "pulse"}]
+          and old_file.name == "plain.mp4" and asr_summary(old_file)[0]["ASR_Trials"] == 1)
+    lone = os.path.join(tmp, "lone_MotionIndex.csv")
+    pd.read_csv(os.path.join(tmp, "plain_MotionIndex.csv")).to_csv(lone, index=False)
+    alone = load_motion(lone)
+    check("a slim motion file without its info file still loads (no stimuli, no pixel count)",
+          file_stimuli(alone) == [] and asr_summary(alone)[0]["AnalyzedPixels"] is None)
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 

@@ -33,6 +33,8 @@ except ImportError:
     TkinterDnD = None
     _DnDMixin = object
 
+import cv2
+import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")  # figures are built off-screen, then embedded
@@ -70,7 +72,8 @@ from core import (
     describe_roles,
     resolve_roles,
 )
-from core.export import output_paths, save_figure, settings_table, write_analysis_workbook
+from core.export import (output_paths, save_figure, settings_table, setup_sections,
+                         write_analysis_workbook)
 from core.gaps import fill_gaps
 from core.video import (MISSING_STAMPS_ALLOWED, VIDEO_EXTENSIONS, UNREADABLE_WARN, check_readable, is_video,
                         video_info)
@@ -89,7 +92,11 @@ from about import AboutDialog
 from region_dialog import RegionDialog
 from setup_window import SetupWindow, use_default_length
 from review_panel import ReviewPanel
-from dialogs import ask_choice, ask_yes_no, show_error, show_info, show_warning
+from core import info_file
+from core.info import (TrialInfo, apply_choice, differences, fill_blanks, find_info,
+                       info_for_output, with_animal)
+from dialogs import (ask_choice, ask_side_by_side, ask_yes_no, show_error, show_info,
+                     show_warning)
 from tooltip import Tooltip
 
 HEATMAP_CMAPS = ["inferno", "viridis", "magma", "plasma", "hot", "jet", "gray"]
@@ -206,6 +213,15 @@ class ScrollPanel(ttk.Frame):
         self.canvas.yview_scroll(step, "units")
 
 
+def plain_value(value):
+    """A value as the info file keeps it: plain Python numbers, text and
+    yes/no, with a missing number as nothing."""
+    value = value.item() if hasattr(value, "item") else value
+    if isinstance(value, float) and pd.isna(value):
+        return None
+    return value
+
+
 def _shown(value):
     """A table cell as shown: blank for a missing value, and a whole number
     without ".0" (a column of counts turns into decimals as soon as one file
@@ -230,6 +246,13 @@ class FileEntry:
     summary: dict | None = None
     bins: pd.DataFrame | None = None
     video: VideoSetup | None = None
+    # What the recording app saved about the trial (its info file, or the
+    # copy a tracking file carries); None if there's none (ROADMAP §16).
+    info: TrialInfo | None = None
+    # The video's setup came back from its info file (it was set up or
+    # tracked before), so it isn't compared with the recording app's values
+    # again: the experimenter chose then.
+    restored: bool = False
     # While Track runs: "queued", "reference" or "tracking" (with track_pct);
     # "failed" (with track_error) after a failed run. "" otherwise.
     track_state: str = ""
@@ -1096,7 +1119,10 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         analyzed). This is also what Export saves for the Summary."""
         rows = []
         for e in self.files:
-            row = {"File": e.label, "Status": ANALYZED if e.analyzed else NOT_ANALYZED}
+            # The animal's ID shows as soon as the file is added (blank when
+            # no info file says whose video it is).
+            row = {"File": e.label, "animal_id": e.info.animal_id if e.info is not None else "",
+                   "Status": ANALYZED if e.analyzed else NOT_ANALYZED}
             if e.analyzed:
                 row.update({k: v for k, v in e.summary.items() if k != "File"})
             rows.append(row)
@@ -1110,7 +1136,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             return
         groups = summary_column_groups([c for c in df.columns if c != "Status"],
                                        self.test_var.get())
-        cols = ["File", "Status"]
+        cols = ["File", "animal_id", "Status"]
         for key, var in self.group_vars.items():
             if var.get():
                 cols += groups.get(key, [])  # group order, so Details stay last
@@ -1839,9 +1865,11 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         return path.lower().endswith(".csv") or is_video(path)
 
     # CSVs that sit beside videos but aren't tracking files: Track Tamer's own
-    # object scoring, and Creature Capture's per-camera frame times and trial
-    # info (ROADMAP §16). Adding a folder skips them.
-    COMPANION_CSV_SUFFIXES = ("_objectscoring.csv", "_frames.csv", "_info.csv", "_trials.csv")
+    # object scoring, and the recording apps' per-camera frame times, trial
+    # tables, running logs and (older recordings) trial info (ROADMAP §16).
+    # Adding a folder skips them.
+    COMPANION_CSV_SUFFIXES = ("_objectscoring.csv", "_frames.csv", "_info.csv", "_trials.csv",
+                              "_log.csv")
 
     @staticmethod
     def _load_output(path: str):
@@ -1896,13 +1924,31 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                     if checked and bad / checked > UNREADABLE_WARN:
                         hard_to_read.append((p, bad, checked))
                     data, name = None, os.path.basename(p)
+                    info = find_info(p)
                 else:
                     setup, data = None, self._load_output(p)
                     name = data.name
+                    # Its video's info file, if that's beside it.
+                    info = info_for_output(p) or find_info(p, name=data.name)
             except Exception as exc:  # report bad files, keep the good ones
                 errors.append(f"{os.path.basename(p)}: {exc}")
                 continue
-            new.append((p, data, setup, name))
+            new.append((p, data, setup, name, info))
+
+        # A file an info file doesn't list by name, but whose name starts like
+        # that info file's: probably renamed. Only used if the user says so.
+        loose = [n for n in new if n[4] is not None and n[4].renamed]
+        if loose:
+            lines = "\n".join(f"• {os.path.basename(n[0])}: {os.path.basename(n[4].path)}"
+                              for n in loose[:10])
+            if len(loose) > 10:
+                lines += f"\n…and {len(loose) - 10} more"
+            if not ask_yes_no(
+                    self, "Use these info files?",
+                    "Some files aren't named in any info file, but their names start "
+                    f"like one, so they may have been renamed.\n\n{lines}\n\nUse these "
+                    "info files for them?", yes="Use Them", no="Don't Use"):
+                new = [n[:4] + (None,) if n in loose else n for n in new]
 
         if hard_to_read:
             lines = "\n".join(f"• {os.path.basename(p)}: {bad} of the first {checked} "
@@ -1919,11 +1965,17 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 skip = {p for p, _, _ in hard_to_read}
                 new = [n for n in new if n[0] not in skip]
 
-        for p, data, setup, name in new:
+        for p, data, setup, name, info in new:
             key = self._same_file_key(p)
             copies = sum(self._same_file_key(e.path) == key for e in self.files)
             label = name if not copies else f"{name} ({copies + 1})"
-            self.files.append(FileEntry(path=p, data=data, label=label, video=setup))
+            restored = False
+            if setup is not None and info is not None:
+                # Set up or tracked before: its setup comes back from the
+                # info file, with its tracking file if that's still there.
+                restored, data = self._restore_setup(setup, info)
+            self.files.append(FileEntry(path=p, data=data, label=label, video=setup,
+                                        info=info, restored=restored))
 
         if not self._sel and len(self.files) > first_new:
             self._sel = [first_new]  # the first new file, ready for Analyze
@@ -1935,6 +1987,196 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 "Some files couldn't be read and weren't added.\n\n"
                 + "\n".join(errors),
             )
+        self._use_info(self.files[first_new:])
+
+    # ------------------------------------------------- trial information
+    def _restore_setup(self, setup, info):
+        """Bring a video's setup back from its info file (what Track Tamer
+        saved there when it was tracked): the session, crop, shapes, regions
+        and scale, its reference image, and its tracking file if that's
+        still beside it. Returns (restored, tracking data or None)."""
+        saved = info.saved
+        test = saved.get("test") if saved.get("test") in TEST_TYPES else self.test_var.get()
+        if not isinstance(saved.get("setup"), dict) or not setup.restore(saved["setup"], test):
+            return False, None
+        files = saved.get("files") if isinstance(saved.get("files"), dict) else {}
+        folder = os.path.dirname(setup.path)
+        try:
+            raw = np.fromfile(os.path.join(folder, str(files.get("reference", ""))),
+                              dtype=np.uint8)
+            image = cv2.imdecode(raw, cv2.IMREAD_GRAYSCALE) if raw.size else None
+            setup.use_reference(image, float(self.config_data["video_downsample"]),
+                                int(self.config_data["reference_frames"]))
+        except (OSError, ValueError, cv2.error):
+            pass        # no reference image: that step is done again
+        data = None
+        tracking = os.path.join(folder, str(files.get("tracking", "")))
+        if files.get("tracking") and os.path.isfile(tracking):
+            try:
+                data = self._load_output(tracking)
+            except Exception:
+                traceback.print_exc()   # an unreadable tracking file: track again
+        return True, data
+
+    def _reread_info(self, e) -> None:
+        """Read a video's info file again after Track Tamer added to it."""
+        was = e.info
+        found = find_info(e.path) if e.video is not None else info_for_output(e.path)
+        if found is None:
+            return
+        if found.renamed:
+            if was is None or not was.renamed:
+                return                  # a loose match the user never confirmed
+            found.camera = next((c for c in info_file.cameras(found.raw)
+                                 if c.get("label") == was.camera.get("label")), found.camera)
+        e.info = found
+
+    def _info_test(self, e) -> str | None:
+        """The test a file's info file names: the one Track Tamer tracked it
+        as, if it did, else the recording app's assay."""
+        saved = e.info.saved.get("test")
+        return saved if saved in TEST_TYPES else e.info.test
+
+    def _use_info(self, entries) -> None:
+        """Use what the recording app saved about the new files (ROADMAP §16).
+        Where it and Track Tamer's setup disagree, the experimenter chooses:
+        both values are shown side by side, one ticked in each row (user,
+        2026-11-11). A value the setup doesn't have yet is just filled in.
+        Then the problems the recording app noted are reported."""
+        have = [e for e in entries if e.info is not None]
+        if not have:
+            return
+        self._use_info_test(have)
+        test = self.test_var.get()
+        rows: dict[tuple, list] = {}        # (what, label, setup, info file) -> videos
+        for e in have:
+            if e.video is None or e.restored:
+                continue
+            fill_blanks(e.info, e.video)
+            for d in differences(e.info, test, e.video):
+                if d.what != "test":
+                    rows.setdefault((d.what, d.label, d.setup_value, d.info_value),
+                                    []).append(e)
+        if rows:
+            keys = list(rows)
+            picked = ask_side_by_side(
+                self, "The setup and the info file disagree",
+                "Track Tamer's setup and the recording app's info file say different "
+                "things. Tick the one that's right in each row. The info file is what "
+                "the recording app saved at the time; Track Tamer's value is its "
+                "setting for this test, or what you set.",
+                [(label, self._who(rows[k]), left, right)
+                 for k in keys for _, label, left, right in (k,)],
+                "Track Tamer", "Info file")
+            for key, side in zip(keys, picked or []):
+                if side == "right":
+                    for e in rows[key]:
+                        apply_choice(e.info, e.video, key[0])
+        self._note_saved_tracking(have)
+        found = []
+        for e in have:
+            v = e.video
+            said = e.info.problems(
+                video_frames=v.info.frame_count if v is not None else None,
+                video_fps=v.info.fps if v is not None else None,
+                session_s=v.length_s if v is not None and test != ASR_TEST else None)
+            found += [f"• {e.label}: {text}" for text in said]
+        if found:
+            show_warning(self, "The info files report problems",
+                         "The recording app's info files report problems with some "
+                         "recordings.\n\n" + "\n".join(found))
+        self._refresh()
+        win = getattr(self, "_setup_win", None)
+        if win is not None and win.winfo_exists():
+            win._show_video()       # lengths and trial details may have changed
+
+    def _note_saved_tracking(self, entries) -> None:
+        """Videos that come back already tracked keep the tracking they have;
+        say so when it was done with other settings than the current ones,
+        since tracking them again would use the current ones."""
+        c = self.config_data
+        now = {"Method": c["track_method"], "Location_Thresh": float(c["loc_thresh"]),
+               "Use_Window": str(bool(c["use_window"])), "Window_Size": float(c["window_size"]),
+               "Window_Weight": float(c["window_weight"]),
+               "Downsample": float(c["video_downsample"]),
+               "Reference_Frames": float(c["reference_frames"])}
+        other = []
+        for e in entries:
+            if not (e.restored and e.data is not None) or is_motion_file(e.data.path):
+                continue
+            was = e.data.settings
+            for key, value in now.items():
+                if key not in was:
+                    continue
+                try:
+                    same = (str(was[key]) == value if isinstance(value, str)
+                            else abs(float(was[key]) - value) < 1e-9)
+                except (TypeError, ValueError):
+                    same = False
+                if not same:
+                    other.append(e)
+                    break
+        if other:
+            show_info(self, "Tracked with other settings",
+                      "Some videos were tracked with other tracking settings than the "
+                      f"current ones.\n\n{self._names(other)}\n\nTheir tracking is kept as "
+                      "it is, and their Settings sheet shows what was used. Tracking them "
+                      "again would use the current settings.")
+
+    @staticmethod
+    def _who(entries) -> str:
+        """Which videos a row is about, kept short."""
+        if len(entries) == 1:
+            return entries[0].label
+        return f"{len(entries)} videos, e.g. {entries[0].label}"
+
+    def _use_info_test(self, have) -> None:
+        """The test type from the info files' `assay`. A load is one test: new
+        files that name several, or another than the files already here, are
+        only warned about."""
+        current = self.test_var.get()
+        unknown = sorted({e.info.assay for e in have
+                          if e.info.assay and not self._info_test(e)})
+        if unknown:
+            show_info(self, "Choose the test yourself",
+                      f"Track Tamer doesn't analyze {' or '.join(unknown)}, which is what "
+                      f"some info files say was recorded. The test type stays {current}; "
+                      "change it if these files should be analyzed as another test.")
+        groups: dict[str, list] = {}
+        for e in have:
+            if self._info_test(e):
+                groups.setdefault(self._info_test(e), []).append(e)
+        if not groups:
+            return
+        earlier = {self._info_test(e) for e in self.files
+                   if e not in have and e.info is not None and self._info_test(e)}
+        lines = "\n".join(f"• {test}: {self._who(group)}" for test, group in groups.items())
+        if len(groups) > 1 or (earlier and set(groups) - earlier):
+            show_warning(self, "These files are from different tests",
+                         "The info files say these files aren't all from one test.\n\n"
+                         f"{lines}"
+                         + (f"\n• already in the list: {', '.join(sorted(earlier))}"
+                            if earlier else "")
+                         + f"\n\nA load is analyzed as one test (now {current}). Add each "
+                         "test's files on their own, with Clear between them.")
+            return
+        wanted = next(iter(groups))
+        if wanted == current:
+            return
+        if self._locked():
+            show_warning(self, "The info file names another test",
+                         f"The info files say these files are {wanted}, but this load is "
+                         f"being analyzed as {current}.\n\n{lines}\n\nTo analyze them as "
+                         f"{wanted}, click Clear and add them on their own.")
+            return
+        picked = ask_side_by_side(
+            self, "Which test is this?",
+            "The test chosen in Track Tamer isn't the one in the info file. Tick the "
+            "one that's right.",
+            [("Test", self._who(groups[wanted]), current, wanted)], "Track Tamer", "Info file")
+        if picked == ["right"]:
+            self.test_var.set(wanted)
+            self._on_test_type()
 
     def clear_files(self) -> None:
         """Empty the list and unlock the per-load settings."""
@@ -2118,6 +2360,10 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             traceback.print_exc()
             show_error(self, "Tracking couldn't start", f"Tracking couldn't start.\n\n{exc}")
             return
+        for job, g in zip(jobs, ready):
+            known = g[0].info
+            if known is not None and known.renamed:     # a renamed video's entry
+                job.label = known.camera.get("label")
         for g in ready:
             for e in g:
                 e.track_state, e.track_pct, e.track_error = "queued", 0, ""
@@ -2304,6 +2550,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                     self._references.pop(msg[2].path, None)  # a new reference image
                     e.data, e.summary, e.bins = msg[2], None, None
                     e.track_state = ""
+                    self._reread_info(e)    # tracking added to the info file
                     # The tracking file itself may be in the list too (added
                     # with its folder): it was just replaced, so it follows.
                     for other in self.files:
@@ -2501,7 +2748,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             c = self.config_data
             summary, e.bins = asr_summary(e.data, float(c["asr_startle_ms"]),
                                           float(c["asr_baseline_ms"]), int(c["asr_block_trials"]))
-            e.summary = order_summary(summary, test)
+            e.summary = with_animal(order_summary(summary, test), e.info)
             return
         min_entry = self.config_data["min_entry_frames"]
         fill = bool(self.config_data["fill_gaps"])
@@ -2555,7 +2802,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 for b, lo, hi in bin_ranges(data.n_frames, fps, bin_s)])
             settings["ZoneDistance_cm"] = zone
         summary.update(settings)
-        e.summary = order_summary(drop_duplicates(summary, roles, test), test)
+        e.summary = with_animal(
+            order_summary(drop_duplicates(summary, roles, test), test), e.info)
         # The test's measures per bin go after the general bin columns.
         if test_bins is not None and not bins.empty:
             bins = bins.merge(test_bins, on="Bin", how="left")
@@ -2579,10 +2827,63 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
 
     def _settings_sheet(self, entry, plot: dict):
         """Everything that produced this file's numbers and images."""
+        return settings_table(self._settings_sections(entry, plot))
+
+    def _video_path(self, e) -> str | None:
+        """The video a file's results belong to, if it's known and there."""
+        if e.video is not None:
+            return e.path
+        name = e.info.camera.get("video") if e.info is not None else None
+        path = os.path.join(os.path.dirname(e.path), name) if isinstance(name, str) else ""
+        return path if os.path.isfile(path) else None
+
+    def _saved_setup(self, e) -> dict | None:
+        """The video's setup, for the export's Setup sheet: as it is now for
+        a video in the list, else as its info file has it."""
+        if e.video is not None:
+            return e.video.to_saved()
+        saved = e.info.saved.get("setup") if e.info is not None else None
+        return saved if isinstance(saved, dict) else None
+
+    def _experiment_sections(self, e) -> dict:
+        """The export's Experiment sheet: which file this is, then the animal
+        and the task as the recording app saved them (the same rows for every
+        file, blank where nothing was recorded)."""
+        recorded = e.info if e.info is not None and e.info.recorded else TrialInfo({})
+        return {"File": {"Video": e.data.name, "Test": e.summary.get("Test", self.test_var.get()),
+                         "Tracking file": os.path.basename(e.data.path)},
+                **recorded.experiment_sections()}
+
+    def _record_export(self, e, sections: dict, out: dict) -> None:
+        """Add the analysis settings and the exported files' names to the
+        video's info file, so the one file says everything about the video.
+        Nothing is written for a tracking file whose video isn't there."""
+        video = self._video_path(e)
+        if video is None:
+            return
+        label = e.info.camera.get("label") if e.info is not None and e.info.renamed else None
+        try:
+            info_file.write(video, {
+                "analysis": {"exported": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                             "version": VERSION,
+                             **{k: plain_value(v) for k, v in sections["Analysis"].items()},
+                             **{k: plain_value(v)
+                                for k, v in sections.get("Time Bins", {}).items()}},
+                "files": {"analysis": os.path.basename(out["analysis"]),
+                          "path": os.path.basename(out["path"]),
+                          "heatmap": os.path.basename(out["heatmap"])},
+            }, label)
+        except OSError:
+            traceback.print_exc()       # the results themselves were written
+            return
+        self._reread_info(e)
+
+    def _settings_sections(self, entry, plot: dict) -> dict:
+        """{section: {setting: value}} for the Settings sheet."""
         row = entry.summary
         test = row.get("Test", self.test_var.get())
         if test == ASR_TEST:
-            return settings_table({
+            return ({
                 "Source": {"Source file": entry.path, "Video (File column)": entry.data.name,
                            "Motion index file": entry.data.path,
                            "Exported": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -2595,7 +2896,9 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                              "Stimuli from": row.get("StimulusSource"),
                              "Pixels analyzed": row.get("AnalyzedPixels"),
                              "Frames": row.get("Frames"),
-                             "Unreadable frames": row.get("UnreadableFrames")},
+                             "Unreadable frames": row.get("UnreadableFrames"),
+                             "Repeated frames": row.get("RepeatedFrames")},
+                **self._info_sections(entry),
             })
         analysis = {
             "Test": test,
@@ -2612,7 +2915,7 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 "Speed smoothing (frames)": row.get("SpeedSmoothing_frames"),
             })
         roles = self._current_roles([entry])
-        return settings_table({
+        return ({
             "Source": {
                 "Source file": entry.path,
                 "Video (File column)": entry.data.name,
@@ -2643,7 +2946,14 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 "Region labels": plot["heatmap_labels"],
             },
             **self._tracking_sections(entry),
+            **self._info_sections(entry),
         })
+
+    @staticmethod
+    def _info_sections(entry) -> dict:
+        """The Settings sheet's part from the recording app's info file."""
+        recorded = entry.info is not None and entry.info.recorded
+        return entry.info.settings_sections() if recorded else {}
 
     # Readable names for the tracking settings a file records (ezTrack's
     # columns, then this app's additions), in this order.
@@ -2782,18 +3092,23 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 out = self._export_paths(e)
                 startle = self.test_var.get() == ASR_TEST
                 try:
+                    sections = self._settings_sections(e, plot)
+                    setup = self._saved_setup(e)
                     write_analysis_workbook(
                         out["analysis"], {k: v for k, v in e.summary.items()},
-                        e.bins, self._settings_sheet(e, plot),
+                        e.bins, settings_table(sections),
                         bins_sheet="Trials" if startle else "Time Bins",
                         interactions=(scoring_table(e.data, load_scoring(e.data),
                                                     self._fps_locked())
                                       if self.test_var.get() == OBJECT_TEST else None),
+                        experiment=settings_table(self._experiment_sections(e), "Field"),
+                        setup=(settings_table(setup_sections(setup)) if setup else None),
                     )
                     save_figure(self._path_fig(e, plot), out["path"])
                     save_figure(self._heat_fig(e, plot), out["heatmap"])
                     written.append(e)
                     workbooks.append(out["analysis"])
+                    self._record_export(e, sections, out)
                 except PermissionError:
                     errors.append(f"• {e.label}: a file is open in another program "
                                   "(e.g. the workbook in Excel). Close it and try again.")
@@ -2833,11 +3148,12 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             show_info(
                 self, "Export finished",
                 f"Exported {len(written)} file(s), each next to its own file.\n\n"
-                + ("Each has an _analysis.xlsx workbook (Summary, Trials, and Settings "
-                   "sheets) plus _trace.png and _aligned.png images.\n\n"
+                + ("Each has an _analysis.xlsx workbook (Experiment, Summary, Trials, "
+                   "Settings and Setup sheets) plus _trace.png and _aligned.png images.\n\n"
                    if self.test_var.get() == ASR_TEST else
-                   "Each has an _analysis.xlsx workbook (Summary, Time Bins, and "
-                   "Settings sheets) plus _path.png and _heatmap.png images.\n\n")
+                   "Each has an _analysis.xlsx workbook (Experiment, Summary, Time "
+                   "Bins, Settings and Setup sheets) plus _path.png and _heatmap.png "
+                   "images.\n\n")
                 + f"{names}{note}",
             )
 

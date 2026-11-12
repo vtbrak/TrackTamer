@@ -1582,6 +1582,100 @@ Tamer's version, so either program can change on its own schedule; Track
 Tamer reads every schema version it knows. Built on a feature branch
 (`capture-metadata`) after 1.0 and released as **1.1**.
 
+**Taken up before 1.0 (user, 2026-11-11), on `main`.** Decided with the
+user the same day:
+- **Scope: everything in this section's plan** (not a core-first cut).
+- **When the info file and the setup disagree, the experimenter chooses**
+  (user: "point out where there is a discrepancy for the task set up and the
+  info file. bring up the discrepancies in a side by side like with check
+  boxes and ask the experimenter to choose which one is correct"). So: a
+  window lists each disagreement with the setup's value and the info file's
+  value side by side, one box ticked per row. This replaces the earlier
+  proposal (the file fills only what's empty).
+- Still as proposed until the user says otherwise: the info file's
+  information is also written into the tracking file, so a tracking file
+  carries it without the JSON.
+- **The same words in every app** (user, 2026-11-11, after seeing each
+  app's info CSV beside Track Tamer's columns: "tell boombox not to leave
+  columns out and make the word choice the same between all app"). The
+  standard now fixes the `_info.csv` columns (section 1): Creature
+  Capture's 24, always all written, an app's extras after them; Boom Box
+  was told. Track Tamer's Summary uses the same names in the same order
+  right after File (`date` … `notes`, with `age_days` worked out here),
+  every one present and blank when not recorded; the recording details
+  (`duration_set_min`, `frames`, `encoder` and so on) are on the Settings
+  sheet. An object trial shows the app's `trial_day` and `phase` beside
+  the `OR_Day` and `OR_Phase` its results used.
+- **One file per video that tells everything (user, 2026-11-11).** The user
+  found the saved data "a lot of repeated data" and wants "a simple way to
+  have a file+json that allows the user to see everything about file", an
+  "experiment info page which is the animal information and the basic task
+  info", and a JSON that lets "the video [be] loaded back into track tamer
+  ... so that if paths and maps weren't generated they could be", and
+  "tracking could be done again with the regions and exclusions drawn";
+  that setup "can be in the csv for backup but should be on it's own tab".
+  No `room` or `app_name` columns anywhere. Decided from five questions:
+  1. **One JSON that Track Tamer adds to**: its own `track_tamer` object
+     inside the video's `cameras` entry of the capture app's info JSON
+     (setup, tracking settings, analysis settings, its file names). It never
+     changes what the capture app wrote. A video with no info file gets one
+     made by Track Tamer in the same layout.
+  2. **The Summary row carries `animal_id`** and the measures; everything
+     else about the animal and task is on the workbook's new **Experiment**
+     tab (vertical, like Settings). The tracking settings come off the
+     Summary row (they're on Settings). A new **Setup** tab holds the crop,
+     regions, exclusions and scale as numbers, as a backup of the JSON.
+  3. **Each video keeps its own files** (no combined table for a load).
+  4. **The tracking file is slimmed** to its per-frame columns; the
+     settings and region outlines it repeated on every row live in the JSON
+     (older files still load).
+  5. **The capture apps drop the per-trial `_info.csv`** and keep the log
+     (both were told; Boom Box's has no log yet as far as known).
+  This replaces the plan to keep a copy of the trial information inside the
+  tracking file, and it also gives priority item 5 (load a video together
+  with its tracking file).
+- **Built 2026-11-11 (uncommitted):**
+  - `core/info_file.py`: the info file on disk (find, Track Tamer's
+    `track_tamer` object, the columns a slim tracking file leaves to it).
+    `core/info.py`: what the fields mean (test, session length, object
+    details, problems, differences, the Experiment and Settings sheets).
+  - Tracking writes the slim `_LocationOutput.csv`, the reference image and
+    the info file together (`tracking.save_outputs`); `loader.load_csv`
+    puts the saved columns back in memory, so the rest of the app is
+    unchanged. Older files that hold their own settings still load.
+  - Startle's `_MotionIndex.csv` is slimmed the same way (user, 2026-11-11:
+    "go, move total_px and drop the stimuli copy"): on disk it has `Frame`,
+    `Time_s`, `MotionIndex_pct`, `AboveThreshold_px`, `Frame_Unreadable`,
+    `Repeated`. The video's name, threshold, start frame, crop, exclusion
+    count, frame rate, stimulus source and `Total_px` (pixels analyzed) are
+    in the info file. The stimuli aren't copied: they're read from the info
+    file's own `stimuli`, or from the typed frames kept with the other
+    constants (`Stimulus_Frames`). What varies from stimulus to stimulus
+    (dB, kHz, type, interval) stays on every row of the Trials table, even
+    when a session uses one value throughout (user).
+  - `VideoSetup.to_saved` / `restore` / `use_reference`; adding a video
+    whose info file has a saved setup restores it and attaches its tracking
+    file (`gui._restore_setup`), without asking again about values the
+    experimenter chose when it was tracked. A notice says when it was
+    tracked with other tracking settings than the current ones.
+  - The side-by-side window (`dialogs.ask_side_by_side`, the info file's
+    side ticked to begin with) for the test type, then for session length
+    and object details (`gui._use_info`).
+  - Export: Experiment, Summary (File, `animal_id`, measures; no tracking
+    settings), Time Bins, Settings, Setup sheets; the analysis settings and
+    exported file names go in the info file. The animal's ID shows beside
+    the file in the on-screen Summary from the moment it's added.
+  - Tests: `test_info.py`, `test_info_gui.py`, and checks in
+    `regress_gui.py`, `test_saving.py`, `test_asr_gui.py`.
+  **Still to build:** marking repeated frames in location tracking, drafts
+  from the same arena's last video, an on-screen Experiment page, the PC
+  checklist.
+- Two parts of the plan have nothing to read yet: **disturbances** (no
+  field in schema 1, and no app records them) and **draft circles from a
+  calibrated rig** (no calibration fields). They wait for the standard.
+  Draft crop, scale and regions come from that arena's last video
+  (standard, section 4, `arena`).
+
 ### 17. Head and tail tracking (branch `head-tail`, started 2026-11-09)
 Built on its own branch so `main` stays releasable. In `main`'s priority
 order, loading a video with a tracking file and conditioned place preference
@@ -1978,22 +2072,34 @@ until the user asks; when they ask what's next, work from the top:
 3. **Acoustic startle (ASR)** (§13): the target for the 1.0 release (user,
    2026-11-09). **Built 2026-11-09 on `main`, not released**; checking on real
    chamber videos is still to come.
-4. **Load a video together with an existing tracking file** (entry below).
-5. **Conditioned place preference** (only its assay name is reserved so far,
-   `docs/metadata_standard.md`; needs its specs decided).
+4. **Puzzle Box** and **reading the capture apps' info files** (§16): moved
+   up by the user on 2026-11-11 ("in main lets work on the puzzle box and
+   the capture app into files. CPP can wait until after 1.0"; "into files"
+   read as the info files), on `main`, before 1.0. Puzzle Box needs its measures decided and an example video
+   first; the info files' open questions (§16) need the user's answers.
+5. **Load a video together with an existing tracking file** (entry below).
 6. **Head and tail tracking** (§17): in progress on the `head-tail` branch,
    alongside the items above (user, 2026-11-09).
 7. **Freezing analysis** (§12): lowest on the list.
 
-Not ranked: reading the capture apps' info files (§16, after 1.0) and the
-standalone app (on hold).
+After 1.0 (user, 2026-11-11): **conditioned place preference** (only its
+assay name is reserved so far, `docs/metadata_standard.md`; needs its specs
+decided). Not ranked: the standalone app (on hold).
 
-**Marker for later: Puzzle Box (user, 2026-11-10).** Creature Capture
+**Puzzle Box (marker from 2026-11-10; taken up 2026-11-11).** Creature Capture
 records it (assay `Puzzle Box`, with trial days and several sessions a day;
 arena `PuzzleBox`, camera `Overhead`), and the name is in the standard's
 assay list. **Not analyzed in Track Tamer for now**, marked like Skilled
 Reaching. Kept here so it isn't forgotten: if it's taken up, it needs its
 measures decided first (nothing is specified yet).
+**Decided with the user, 2026-11-11:** report the **time to reach the goal
+box** (and whether the mouse got there before the session ended), plus
+**time in the start area, distance travelled and speed before reaching the
+goal**. **The goal box is covered**: the overhead camera can't see the mouse
+inside it, so reaching the goal is judged from where and when the mouse
+disappears from view at the doorway. Not built yet: it needs an example
+video (none in `Examples/`) to see what the tracker does when the mouse
+vanishes.
 
 **Everything planned so far is built** (as of 2026-10-30). Still open:
 - ✅ **Anaconda install (§14)**: built 2026-11-03 on `main`, merged into

@@ -5,8 +5,8 @@ recording videos for Track Tamer saves beside its videos, so Track Tamer can
 fill it in automatically (ROADMAP §16). **Track Tamer owns this standard**:
 apps that generate video follow it, and changes are made here first, then in
 the apps. It stays a draft until the user says otherwise; while it's a draft,
-changes don't raise `schema_version`. Reading it in Track Tamer is planned
-for after Track Tamer 1.0.
+changes don't raise `schema_version`. Track Tamer reads it, and adds its own
+part to the same file (built 2026-11-11; section 1).
 
 Apps covered so far: **Creature Capture**, **Boom Box** and **Pellet
 Paparazzi** (see "Apps" at the end). Apps whose videos Track Tamer doesn't
@@ -24,7 +24,40 @@ For each trial, per arena, an app writes beside the videos:
 | `<date>_<time>_<arena>_info.json` | the trial information (this standard). **The only file Track Tamer reads for trial information.** |
 | one video per camera | named in `cameras[].video` |
 | one `_frames.csv` per camera | the measured time of every frame, named in `cameras[].timestamps_csv` |
-| `<date>_<time>_<arena>_info.csv` (optional) | for people (e.g. a spreadsheet log); Track Tamer doesn't read it |
+| a running log (optional), one row per trial | for people (a spreadsheet of every trial in an experiment); Track Tamer doesn't read it. Its columns are fixed (below) |
+
+**No per-trial `_info.csv`** (user, 2026-11-11: the same details were being
+saved several times over). The JSON is the one record of a trial; an app
+that wants a spreadsheet for people keeps **a running log**, one row per
+trial, and every app's log has **these columns, in this order, every time**.
+A column is never left out: it's blank when the app has nothing for it.
+
+`date`, `start_time`, `assay`, `assay_variant`, `phase`, `arena`,
+`experimenter`, `cohort`, `animal_id`, `sex`, `strain`, `dob`, `treatment`,
+`trial_day`, `session_number`, `notes`, `duration_set_min`,
+`duration_actual_s`, `stopped_early`, `frames`, `repeated_frames`, `videos`,
+`encoder`, `app_version`
+
+- The names are the JSON's field names, and the values are the JSON's, with
+  the same words in every app: `stopped_early` is `yes` or `no`;
+  `repeated_frames` is `<camera label>:<count>` and `videos` is the video
+  file names, each with several cameras separated by `;`; `frames` is the
+  frames written (the first camera's); `encoder` is the video encoder.
+- These are Creature Capture's log columns as it already wrote them.
+  **No `room` and no `app_name` column** (user, 2026-11-11: not wanted;
+  they stay in the JSON for an app that has them).
+- Track Tamer's own tables use the same words. Its Summary row carries
+  `animal_id` after File; the rest about the animal and the task is listed
+  on its workbook's Experiment sheet.
+
+**Track Tamer adds to the info file.** When it tracks or exports a video it
+adds an object named `track_tamer` to that video's entry in `cameras`
+(section 2), in the same file, and saves the file again whole. It never
+changes anything the recording app wrote. So an app must not expect the
+file to stay byte for byte as it wrote it, must not rewrite an info file
+after the trial, and should ignore keys it doesn't know when reading one. A
+video with no info file gets `<video name>_info.json` from Track Tamer, in
+this layout, holding only Track Tamer's part.
 
 **Name parts:**
 - `<date>` is `YYYY-MM-DD`.
@@ -47,7 +80,8 @@ confirms. So: write bare file names (no folders), exactly as on disk, and
 keep videos and their info file together.
 
 **Reserved endings.**
-- For the apps: `_info.json`, `_info.csv`, `_frames.csv`, `_trials.csv`.
+- For the apps: `_info.json`, `_frames.csv`, `_trials.csv`, `_log.csv`
+  (and `_info.csv`, which older recordings have).
 - For Track Tamer's own files (added to a video's name, so apps must not use
   them): `_LocationOutput.csv`, `_reference.png`, `_ObjectScoring.csv`,
   `_analysis.xlsx`, `_path.png`, `_heatmap.png`, `_tracked.mp4`,
@@ -74,6 +108,24 @@ goes in the app's own object, never at the top level, so it can't clash
 with a standard field added later or with another app's field of the same
 name. Per-camera app fields go in an object of the same name inside that
 camera's entry.
+
+**Track Tamer's own object, `track_tamer`,** sits inside a video's `cameras`
+entry (per-camera app fields go there), since its setup is per video:
+
+| Key | What it holds |
+|---|---|
+| `version`, `saved` | the Track Tamer version and when it last tracked the video |
+| `test` | the test the video was tracked as |
+| `setup` | the session (start frame, end frame, length), crop, exclusion shapes, regions, scale points and length, objects and their types, typed stimulus frames; shapes in full-size video pixels, with the frame size they were drawn on |
+| `tracking` | what the tracking file would otherwise repeat on every row: the video's name, every tracking setting, the scale, and the region outlines as tracked. For startle: the threshold, start frame, crop, frame rate, pixels analyzed, where the stimuli came from, and the stimulus frames if they were typed in (stimuli from the recording app are read from `stimuli`, not copied) |
+| `analysis` | the analysis settings of the last export |
+| `files` | the names of the files Track Tamer made beside the video (tracking file, reference image, workbook, plots) |
+
+With it, a video added to Track Tamer again comes back with its setup as it
+was and its tracking file attached, so plots can be made or the video
+tracked again with the same regions and exclusions. The tracking file
+itself (`_LocationOutput.csv`, or startle's `_MotionIndex.csv`) holds only
+the per-frame columns.
 
 Track Tamer reads the standard and assay fields, copies the app objects
 into the export's Settings sheet as they are, and otherwise ignores them. If
@@ -301,8 +353,10 @@ confined to in a conditioning session).
 ## Apps
 
 ### Creature Capture
-Writes `<date>_<time>_<arena>_info.json` (and `_info.csv`) per arena per
-trial, one MP4 and one `_frames.csv` per camera.
+Writes `<date>_<time>_<arena>_info.json` per arena per trial, one MP4 and
+one `_frames.csv` per camera, and a row in its running log
+(`<folder>_log.csv`). Up to 0.2.0 it also wrote a per-trial `_info.csv`;
+it was asked to stop on 2026-11-11 (section 1).
 
 **Matches the revised schema 1 draft** (reported by Creature Capture,
 2026-11-06; committed and pushed, confirmed 2026-11-10). Its `fps_measured`
@@ -399,6 +453,12 @@ Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
   counts them (`RepeatedFrames`), and **Analyze warns when more than half of
   a video's frames are repeats**, with the share and the real frames a
   second (built 2026-11-11).
+- **From 1.3.5 (reported 2026-11-11; built, not yet committed there):** no
+  per-session `_info.csv` (up to 1.3.4 it wrote one, with columns that
+  varied and other words than Creature Capture's). A running log instead,
+  `<data folder>_log.csv` (by default `Data/Data_log.csv`), with section
+  1's 24 columns and words. It writes `_info.json` once and never rewrites
+  it, so Track Tamer's `track_tamer` object is safe there.
 - **Not yet checked** with the lab's camera in a real session, or on Windows
   (Boom Box's own status).
 

@@ -148,7 +148,8 @@ tab lists every startle; click one to open the video at its stimulus, and use
 peak** in the playback window. The Summary
 gives the mean amplitude per trial type and pulse frequency, **% PPI**
 (overall and per prepulse level) and **% habituation** (first vs last block of
-pulse-alone trials). Results save as `<name>_MotionIndex.csv`, and Export
+pulse-alone trials). Results save as `<name>_MotionIndex.csv` (one row per
+frame; the threshold and other settings are in the video's info file), and Export
 writes `_analysis.xlsx`, `_trace.png` and `_aligned.png`.
 
 **Time bins** (per file): the session split into fixed-length bins (default
@@ -214,9 +215,16 @@ Credits).
      to use it or track again.
    - If the videos' frame rate differs from the **Frame rate** setting, you
      can switch the setting to the videos' rate.
-   - Each video gets `<name>_LocationOutput.csv` (ezTrack's format, plus
-     every setting used and a `Frame_Unreadable` column) and
+   - Each video gets `<name>_LocationOutput.csv` (one row per frame:
+     position, region, distance and a `Frame_Unreadable` column) and
      `<name>_reference.png` next to it, and becomes **Not analyzed**.
+   - The settings used and everything drawn for the video (session, crop,
+     exclusions, regions, scale) are saved in **the video's info file**: the
+     `_info.json` its recording app wrote, to which Track Tamer adds its own
+     `track_tamer` part, or `<name>_info.json` if the video has none. Keep it
+     with the video: **adding the video again later brings back its setup and
+     its tracking file**, so you can analyze and export without tracking
+     again, or track again with the same regions and exclusions.
 4. **Analyze** and **Export** as for CSVs (below).
 5. The **Review** tab lists the points to review for the selected file, and
    **Open playback window** plays its video, in its own resizable window,
@@ -289,7 +297,12 @@ credits, the ezTrack citation, and the license.
 files **next to its source CSV**, named after it, overwriting any earlier
 export:
 
-- `<name>_analysis.xlsx`: **Summary** (the file's row), **Time Bins**, and
+- `<name>_analysis.xlsx`, with these sheets:
+  **Experiment** (down the page: the file, the animal and the task, as the
+  recording app saved them; blank where nothing was recorded), **Summary**
+  (the file's row: File, `animal_id`, then the measures), **Time Bins**,
+  **Setup** (for a video set up here: the crop, each region's corners, the
+  exclusion shapes and the scale as numbers, a backup of the info file), and
   **Settings** (everything used to produce the results: test, frame rate,
   entry rule, Open Field thresholds, gap filling, region roles, bin size, the
   Path and Heatmap plot settings, how the file was tracked (method,
@@ -303,7 +316,19 @@ export:
   reference image the PNG isn't transparent).
 
 For a video, these go next to the video. Tracking already saved
-`<name>_LocationOutput.csv` and `<name>_reference.png` there.
+`<name>_LocationOutput.csv` and `<name>_reference.png` there. Export also
+notes the analysis settings and the exported files' names in the video's
+info file.
+
+### Videos from Creature Capture and Boom Box
+These apps save an `_info.json` beside each video. When such a video is
+added, Track Tamer reads it: the animal's ID shows beside the file, and the
+animal and task details go on the workbook's Experiment sheet. Where the
+info file and Track Tamer disagree (the test type, the session length, an
+object trial's day, phase or object types), a window shows both values side
+by side; tick the one that's right in each row. Problems the recording app
+noted (stopped early, an encoder error, frame counts that don't agree) are
+reported.
 
 Only analyzed files are exported. If a workbook is open in Excel, close it
 before exporting again.
@@ -320,6 +345,8 @@ TrackTamer/
 ├── app/             the program
 │   ├── core/            analysis and tracking engine (no GUI dependencies)
 │   │   ├── export.py    write _analysis.xlsx and plot images
+│   │   ├── info.py      the recording app's trial information (test, animal, session)
+│   │   ├── info_file.py the video's info file: find it, and Track Tamer's part of it
 │   │   ├── safe_write.py  save files whole before replacing the earlier one
 │   │   ├── loader.py    read & validate CSVs, detect region columns
 │   │   ├── metrics.py   summary + time-binned metrics

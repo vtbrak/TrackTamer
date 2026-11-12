@@ -68,7 +68,12 @@ not just crashes.
 5. Click **Analyze**, then look at the **Summary**, **Time Bins**, **Path**
    and **Heatmap** tabs.
 6. Click **Export**. Check the `_analysis.xlsx` and the two pictures saved
-   beside the video.
+   beside the video. The workbook has Experiment, Summary, Time Bins,
+   Settings and Setup sheets.
+7. Click **Clear**, then add the same video again. It should come back
+   already set up and tracked (status **Not analyzed**), with its regions as
+   you drew them, and Analyze should work straight away. That comes from the
+   `_info.json` file beside the video.
 
 ### B. Elevated Plus Maze or Open Field
 - In step 5, draw each region by clicking around it (click the first point
@@ -125,7 +130,7 @@ help:
   (Mac) that opens with the program. Errors appear there even when the
   program keeps going.
 - If it's about one video: its length and size, and if you can, the video or
-  its `_LocationOutput.csv`.
+  its `_LocationOutput.csv` together with its `_info.json`.
 
 ### Known limitations
 - Windows has had less testing than Mac, so Windows reports are especially

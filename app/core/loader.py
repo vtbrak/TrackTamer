@@ -16,6 +16,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from . import info_file
+
 # Columns we expect in a LocationOutput file. The program still runs if some
 # optional ones are missing, but these are the ones the analyses rely on.
 REQUIRED_COLUMNS = ["Frame", "X", "Y"]
@@ -114,6 +116,13 @@ def load_csv(path: str) -> TrackingData:
     Raises ValueError if the file is missing required position columns.
     """
     df = pd.read_csv(path, low_memory=False)  # blank region values mix types
+    # A file tracked in this app keeps only its per-frame columns; what is
+    # the same on every row (the video's name, the tracking settings, the
+    # region outlines) is in the video's info file, and goes back in here so
+    # the rest of the app sees the table as it always was.
+    for column, value in info_file.saved_columns(path).items():
+        if column not in df.columns:
+            df[column] = np.nan if value is None else value
 
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:

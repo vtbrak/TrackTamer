@@ -236,6 +236,93 @@ class VideoSetup:
             return all(s in self.steps_done for s in ASR_STEPS)
         return self.ready
 
+    # --- kept in the video's info file --------------------------------------
+    def to_saved(self) -> dict:
+        """Everything set up for this video, as the info file keeps it (plain
+        numbers and lists; shapes in full-size video pixels), so the video
+        can be added again with its setup as it was."""
+        shape = lambda xs, ys: {"xs": [float(x) for x in xs], "ys": [float(y) for y in ys]}  # noqa: E731
+        return {
+            "frame_size": [int(self.info.width), int(self.info.height)],
+            "start_frame": int(self.start),
+            "end_frame": int(self.end_frame),
+            "length_s": None if self.length_s is None else float(self.length_s),
+            "end_placed": self.end_placed,
+            "crop": [float(v) for v in self.crop] if self.crop else None,
+            "exclusions": [shape(xs, ys) for xs, ys in self.exclusions],
+            "regions": {name: shape(xs, ys) for name, (xs, ys) in self.regions.items()},
+            "scale_points": [[float(x), float(y)] for x, y in self.scale_points],
+            "scale_cm": None if self.scale_cm is None else float(self.scale_cm),
+            "object_names": list(self.object_names),
+            "objects": {n: [float(v) for v in circle] for n, circle in self.objects.items()},
+            "object_kinds": dict(self.object_kinds),
+            "trial_day": self.trial_day, "trial_phase": self.trial_phase,
+            "stimulus_frames": [int(f) for f in self.stimulus_frames],
+        }
+
+    def restore(self, saved: dict, test: str) -> bool:
+        """Take a setup back from the info file. The session and trial
+        details always come back; the shapes only for a video of the frame
+        size they were drawn on. Every step it covers is marked done, except
+        the reference image and tracking check, which need the reference
+        (`use_reference`). False if `saved` isn't a setup this can read
+        (nothing is changed then)."""
+        try:
+            pair = lambda p: (float(p[0]), float(p[1]))                 # noqa: E731
+            poly = lambda s: ([float(x) for x in s["xs"]], [float(y) for y in s["ys"]])  # noqa: E731
+            start = int(saved.get("start_frame") or 0)
+            length = saved.get("length_s")
+            length = None if length is None else float(length)
+            end = saved.get("end_frame")
+            placed = saved.get("end_placed")
+            crop = saved.get("crop")
+            crop = tuple(float(v) for v in crop) if crop else None
+            if crop is not None and len(crop) != 4:
+                return False
+            exclusions = [poly(s) for s in saved.get("exclusions") or []]
+            regions = {str(n): poly(s) for n, s in (saved.get("regions") or {}).items()}
+            points = [pair(p) for p in saved.get("scale_points") or []]
+            cm = saved.get("scale_cm")
+            cm = None if cm is None else float(cm)
+            names = [str(n) for n in saved.get("object_names") or self.object_names]
+            objects = {str(n): tuple(float(v) for v in c)
+                       for n, c in (saved.get("objects") or {}).items()}
+            kinds = {str(n): str(k) for n, k in (saved.get("object_kinds") or {}).items()
+                     if k in KINDS}
+            stimuli = [int(f) for f in saved.get("stimulus_frames") or []]
+            size = saved.get("frame_size")
+        except (TypeError, ValueError, KeyError, IndexError, AttributeError):
+            return False
+        self.start = max(0, min(start, max(self.info.frame_count - 1, 0)))
+        self.length_s, self.length_default = length, ""
+        self.end = None if length is not None or end is None else int(end)
+        self.end_placed = int(placed) if placed is not None else None
+        self.object_names, self.object_kinds = names, kinds
+        self.trial_day = str(saved.get("trial_day") or "")
+        self.trial_phase = str(saved.get("trial_phase") or "")
+        self.stimulus_frames = stimuli
+        done = {"trim"}
+        if list(size or []) == [self.info.width, self.info.height]:
+            self.crop, self.exclusions, self.regions = crop, exclusions, regions
+            self.scale_points, self.scale_cm, self.objects = points, cm, objects
+            done |= {"exclusions", "regions", "scale", "threshold", "stimuli"}
+        else:
+            self.scale_cm = cm
+        self.reference, self.reference_key = None, None
+        self.steps_done = done & set(steps_for(test))
+        return True
+
+    def use_reference(self, image: np.ndarray, dsmpl: float, frames: int) -> bool:
+        """Take a saved reference image (the one beside the video) as this
+        setup's, if it's the size this setup's prepared frames are. Then
+        the reference and tracking check steps count as done."""
+        if image is None or tuple(image.shape[:2]) != tuple(self.prepared_shape(dsmpl)):
+            return False
+        self.reference = image.astype(float)
+        self.reference_key = self._reference_inputs(dsmpl, frames)
+        self.steps_done |= {"reference", "tracking"}
+        return True
+
     # --- drafts from another video ---------------------------------------
     def same_size(self, other: "VideoSetup") -> bool:
         return (self.info.width, self.info.height) == (other.info.width, other.info.height)
