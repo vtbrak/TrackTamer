@@ -1366,6 +1366,116 @@ Trials / Motion Trace / Aligned Trials; tests `test_asr.py`, `test_asr_gui.py`).
     steps through levels.
   `core/asr.py` (`level_curves`, `baseline_criterion`, `startle_threshold`,
   `level_measures`), `plotting.level_figure`.
+- **First check against a real Boom Box session (2026-11-12).** The user
+  ran a Hearing Test with no animal (Boom Box 1.3.7; `Examples/2026-11-12_
+  08-35-47_ASR1_mic-test`) to check the fields Track Tamer writes. The
+  fields matched Boom Box's data: 36 trials for 36 stimuli, frame times from
+  its frame file, the same 8 repeated frames in all three files, every
+  sound's time inside its labelled frame. Two things in the recording:
+  - **Compression bursts: Track Tamer is to stay aware of these.** Every
+    250th frame (the video's keyframe, every 8.33 s) shows about 1.4% of
+    pixels changing by more than 5 grey levels (session median 0.02%); all
+    104 such frames, 104 of the session's 120 largest motion values. It fell
+    in the windows of 7 of the 36 trials and gave false amplitudes of about
+    ±1.4. The threshold had been set to 5; at the default 15 the burst is
+    about 0.03 to 0.04%. Passed to Boom Box (user). **Nothing is changed in
+    how Track Tamer measures for now** (user: "keep track tamer aware of the
+    compression issues and we will see what happens when a mouse is added to
+    the box"). If it still matters with an animal: leave keyframes out of
+    the peaks as repeated frames are, and warn at low thresholds.
+    **Boom Box 1.3.9 (reported 2026-11-12) records without those
+    keyframes** (`camera_settings.encoder_params` is `intra-refresh=1`);
+    videos from before it keep them (standard, Boom Box section).
+  - Frame times are uneven (332 gaps over 50 ms, 40 under 10 ms, one
+    repeated frame 3 ms earlier than the frame before). Track Tamer copes;
+    reaction times carry up to about 30 ms of noise. Not passed on (the
+    user didn't ask for it).
+- **Changes from that check (user, 2026-11-12):**
+  - The Summary is called **Data Summary** (the tab and the workbook sheet,
+    for every test).
+  - **Units on every column heading.** Startle: amplitudes, means, medians
+    and the largest response end `_pct` (% of pixels); the Trials headings
+    are `Pixel.change_px`, `motion.index.before_pct`, `motion.index.after_
+    pct`, `Time.startle_s`, `ReactionTime_ms`, `Startle amplitude_pct`;
+    `AnalyzedPixels_px`, `IntensityThreshold_graylevels`. A test checks
+    that every exported heading of every test carries a unit or is a count,
+    a ratio or a label (`tests/test_units.py`).
+  - **The Trials table has the prepulse headings (`Prepulse_dB`,
+    `Interval_ms`) only when the session has prepulse trials.**
+  - **Habituation only for a habituation session** (the info file's variant
+    is `Startle Habituation`), and called **short-term habituation**
+    (`ASR_ShortTermHabituation_pct`, `..._Block1_Mean_pct`): within one
+    session; across days is worked out outside the app for now. More
+    calculations for it are to come from the user.
+  - Frequency columns stay even with one frequency (user: fine to have both).
+  - In the info file the startle images are named `trace` and `aligned`
+    (they were under `path` and `heatmap`).
+  - **Exclusion shapes are trimmed to the video frame** when drawn (and when
+    an older setup is restored): it's easier to draw past the edge to cover
+    everything (`video_setup.clip_to_frame`).
+  - The Settings sheet lists repeated frames once (not again under Camera).
+  - **A startle setup holds only what startle uses** (user, 2026-11-12): the
+    session, crop, exclusions and typed stimulus frames. No regions, scale,
+    objects or trial day in the info file's saved setup
+    (`VideoSetup.to_saved(test)`), and no "Regions: none" or "Scale: none"
+    rows on the Setup sheet (`export.setup_sections(startle=True)`). The
+    (The trial day was taken out with them at first; that was wrong and
+    is undone, next item.)
+  - **The trial day and session are the trial's, whatever the test** (user,
+    2026-11-12: "startle does have multi days of trial so it needs to have
+    the information that is reported from boom box", then "make sure that
+    track tamer is in alignment with the meta data being produced from the
+    other apps"). Taking the trial day out of the startle setup that
+    morning, and filling it only for object trials, treated a standard
+    field as one test's; both are undone. The rule, checked field by field
+    against Creature Capture's and Boom Box's writers (both write
+    `trial_day` and `session_number` for every assay, and the same 24 log
+    columns): **Track Tamer never handles a standard field for one test
+    only.**
+    - Every test's Data Summary row starts File, `animal_id`, `trial_day`,
+      `session_number` (the standard's names; blank when the info file
+      doesn't say, never left out), on screen as soon as a file is added and
+      in the workbook (`info.with_animal`, `info.DAY_COLUMNS`). An object
+      trial shows the day in use (the experimenter can correct it), so a
+      row never shows two days.
+    - Every test's saved setup keeps `trial_day` and `trial_phase`. Outside
+      Object Recognition the day can't be set in Track Tamer, so the
+      setup's copy always follows the info file (`info.follow_day`,
+      `gui._follow_day`), and a change of day alone isn't taken for a new
+      setup.
+    - `session_number` can be typed for a video with no info file (Animal
+      information), next to the trial day.
+    - An error the recording app reported is listed on the Settings sheet
+      (it was only a warning on screen).
+    - The standard's section 4 now says where each field goes as built.
+    - **`OR_Day` is gone** (user, 2026-11-12: "Keep trial day and drop OR
+      day"): an object trial's day is in `trial_day` like every test's, and
+      it is the day set in Track Tamer (`objects.trial_summary`,
+      `gui._own_day`). `OR_Phase` is unchanged (the user wasn't asked to
+      rename it and didn't).
+    - Decided the same day, nothing to build: every startle video comes
+      from Boom Box, so there is no need to mark a habituation session by
+      hand ("there won't be a startle video without boom box"); the lab has
+      no room to record ("There is no room"), so `room` is shown nowhere.
+      `room` is still a field in the standard and a setting in Boom Box;
+      taking it out of both is the user's call.
+    - Creature Capture and Pellet Paparazzi were told to refresh their
+      copies of the standard (both were behind).
+  - **Each group's columns sit together in every exported table** ("pulse
+    mean, pulse n, etc."): `metrics.group_together`. Startle: each trial
+    type's count, mean and median, then per sound, per level, the threshold
+    and largest response, PPI, short-term habituation. Location tests: a
+    key measure is followed by the other numbers about the same thing (the
+    plus maze's ratios; center; open arms; closed arms), each region's time,
+    percent and entries together, each object's numbers together. **This
+    changes the 2026-11-05 export order** (key measures first as one block);
+    the on-screen Key measures view is unchanged.
+  - **One name for the analysis file in every test**: `<video name>_
+    analysis.xlsx`, whether the video or its tracking file was added (a
+    tracking file used to give `<name>_LocationOutput_analysis.xlsx`). The
+    workbook stays an Excel file with its tabs (the user considered CSV and
+    kept the workbook: "keep ... so that multiple tabs can be saved. Makes
+    this the standard").
 - The threshold locks at the first Track; the windows and block size lock at
   Analyze. Always full size (no downsampling). The whole video by default.
 **Checked:** the five paper clips (101 frames, 30 fps; stimulus frame 50
@@ -1636,7 +1746,8 @@ user the same day:
   every one present and blank when not recorded; the recording details
   (`duration_set_min`, `frames`, `encoder` and so on) are on the Settings
   sheet. An object trial shows the app's `trial_day` and `phase` beside
-  the `OR_Day` and `OR_Phase` its results used.
+  the `OR_Day` and `OR_Phase` its results used. (`OR_Day` was dropped on
+  2026-11-12: the day is `trial_day` in every test's row.)
 - **One file per video that tells everything (user, 2026-11-11).** The user
   found the saved data "a lot of repeated data" and wants "a simple way to
   have a file+json that allows the user to see everything about file", an

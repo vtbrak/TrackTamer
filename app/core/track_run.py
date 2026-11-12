@@ -80,7 +80,7 @@ def make_job(setup: VideoSetup, params: TrackingParams, dsmpl: float,
         exclusion_count=len(setup.exclusions),
         fps=float(setup.info.fps or 0),
         extra=object_settings(setup, dsmpl) if test == OBJECT_TEST else None,
-        record={"test": test, "setup": setup.to_saved()},
+        record={"test": test, "setup": setup.to_saved(test)},
     )
 
 

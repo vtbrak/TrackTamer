@@ -93,8 +93,9 @@ check("what the recording app noted is reported",
       "The info files report problems" in log
       and "stopped early (after 12.5 s)" in shown[log.index("The info files report problems")])
 values = app.summary_tree.item(app.summary_tree.get_children()[0], "values")
-check("the animal's ID shows beside the file as soon as it's added",
-      list(app.summary_tree["columns"])[:3] == ["File", "animal_id", "Status"] and values[1] == "M7")
+check("the animal's ID, trial day and session show beside the file as soon as it's added",
+      list(app.summary_tree["columns"])[:5] == ["File", "animal_id", "trial_day", "session_number",
+                                                "Status"] and values[1] == "M7")
 
 check("there's an Experiment tab, showing the selected file's animal and task without Analyze",
       app.nb.tab(app.tab_experiment, "text") == "Experiment"
@@ -105,7 +106,8 @@ check("there's an Experiment tab, showing the selected file's animal and task wi
       and "2026-11-12_09-15-00_OF2_info.json" in app.experiment_note.get())
 
 clear(); ticks[:] = ["left"]
-second = recording("2026-11-12_09-30-00", "OF2", "Open Field", duration_set_min=0.25)
+second = recording("2026-11-12_09-30-00", "OF2", "Open Field", duration_set_min=0.25,
+                   trial_day=3, session_number=2)
 app.add_files([second]); app.update()
 check("a second video of the same test isn't asked about the test again; ticking Track "
       "Tamer's side keeps its value",
@@ -137,6 +139,16 @@ check("closing setup saves the video's setup in its info file, before any tracki
       and own["setup"]["steps_done"] == [] and "tracking" not in own
       and "setup_changed_since_tracking" not in own
       and kept["animal_id"] == "M7" and kept["duration_set_min"] == 0.25)
+check("the saved setup's trial day is the recording app's (an Open Field video here: the day "
+      "is every test's, not only an object trial's)",
+      "trial_day" in kept and own["setup"]["trial_day"] == str(kept["trial_day"])
+      and v2.trial_day == str(kept["trial_day"]))
+v2.trial_day = "99"                     # (nothing in Track Tamer sets it for this test)
+app._save_setup(app.files[1])
+again = json.load(open(second_info, encoding="utf-8"))["cameras"][0]["track_tamer"]
+check("and it can't drift from the info file, nor is a day alone taken for a new setup",
+      v2.trial_day == str(kept["trial_day"]) and again["setup"] == own["setup"]
+      and "setup_changed_since_tracking" not in again)
 check("a video whose setup was never opened has nothing saved",
       "track_tamer" not in json.load(open(os.path.join(tmp, "2026-11-12_09-15-00_OF2_info.json"),
                                           encoding="utf-8"))["cameras"][0])
@@ -259,7 +271,7 @@ os.remove(own_json)
 app.clear_files(); clear(); del missing[:]
 typed["values"] = {"animal_id": "M9", "sex": "F", "strain": "C57BL/6J", "dob": "2024-02-01",
                    "treatment": "saline", "cohort": "", "date": "2024-04-01",
-                   "experimenter": "ES", "trial_day": "1", "notes": ""}
+                   "experimenter": "ES", "trial_day": "1", "session_number": "2", "notes": ""}
 todo[:] = ["animal"]; answer[0] = True
 app.add_files([plain]); app.update()
 e = app.files[0]
@@ -269,6 +281,7 @@ check("the animal's information can be typed in, starting from the date in the f
       and e.info.animal_id == "M9" and not e.info.from_recording_app)
 check("it's saved as the standard's fields in an info file beside the video",
       saved["animal_id"] == "M9" and saved["dob"] == "2024-02-01" and saved["trial_day"] == 1
+      and saved["session_number"] == 2
       and saved["start_time"] == "11:49:23" and saved["app_name"] == "Track Tamer"
       and "cohort" not in saved and saved["cameras"][0]["video"] == os.path.basename(plain))
 rows_now = [tuple(app.experiment_tree.item(i, "values")) for i in app.experiment_tree.get_children()]

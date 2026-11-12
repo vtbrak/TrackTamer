@@ -82,16 +82,26 @@ for obj in ("object 1", "object 2"):
     sc.start(obj, x["row"]); sc.end(x["row"] + 9)
 app.analyze(); app.update()
 s = e.summary
-check("the row starts with File and the animal's ID", list(s)[:2] == ["File", "animal_id"])
-keys = list(s)[2:10]
+check("the row starts with File, the animal's ID, the trial day and the session; the day is "
+      "the one set for the object trial",
+      list(s)[:4] == ["File", "animal_id", "trial_day", "session_number"]
+      and s["trial_day"] == 2 and "OR_Day" not in s)
+keys = list(s)[4:12]
 print("   first columns:", keys)
 check("Summary leads with the trial and object measures",
-      keys[:6] == ["OR_Day", "OR_Phase", "OR_NovelObjects", "OR_DiscriminationIndex",
+      keys[:5] == ["OR_Phase", "OR_NovelObjects", "OR_DiscriminationIndex",
                    "OR_PctPreference", "OR_Total_s"])
+objects_at = [k for k in s if k.endswith("object 1_s") or k.endswith("object 1")
+              or k.endswith("object 2_s") or k.endswith("object 2")]
+check("each object's numbers sit together in the row (time, bouts, latency, zone time and visits)",
+      [k for k in s if "object 1" in k] == ["OR_Time_object 1_s", "OR_Bouts_object 1",
+                                             "OR_Latency_object 1_s", "OR_ZoneTime_object 1_s",
+                                             "OR_ZoneVisits_object 1"]
+      and list(s).index("OR_Time_object 2_s") == list(s).index("OR_ZoneVisits_object 1") + 1)
 check("results from the scoring: 1 s each, DI 0, preference 50%",
       s["OR_Time_object 1_s"] == 1.02 and s["OR_Time_object 2_s"] == 1.02
       and s["OR_DiscriminationIndex"] == 0 and s["OR_PctPreference"] == 50
-      and s["OR_Day"] == "2" and s["OR_NovelObjects"] == "object 2 (novel)")
+      and s["trial_day"] == 2 and s["OR_NovelObjects"] == "object 2 (novel)")
 print("   lost-tracker warnings:", [t for t in log if "lost" in t])
 check("no outside-region warning for Object Recognition (it has no regions)",
       not any("lost" in t for t in log) and "OutsideEvents" not in s or not s.get("OutsideEvents"))
@@ -105,7 +115,7 @@ check("Time Bins carry interaction time per bin",
 keep = e.summary["OR_Time_object 2_s"]
 app.review._save_trial({"object 1": "Moved"}, "4", "Training"); app.update()
 check("editing trial info after Analyze updates the results at once (no re-tracking)",
-      e.summary["OR_Day"] == "4" and e.summary["OR_Phase"] == "Training"
+      e.summary["trial_day"] == 4 and e.summary["OR_Phase"] == "Training"
       and "object 1 (moved)" in e.summary["OR_NovelObjects"]
       and e.summary["OR_Time_object 2_s"] == keep)
 app.review._save_trial({"object 1": "Familiar"}, "2", "Test"); app.update()
@@ -116,7 +126,7 @@ if os.path.exists(xlsx):
     sheets = pd.read_excel(xlsx, sheet_name=None)
     print("   sheets:", list(sheets))
     check("export has the summary columns and an Interactions sheet",
-          "OR_DiscriminationIndex" in sheets["Summary"].columns and "Interactions" in sheets)
+          "OR_DiscriminationIndex" in sheets["Data Summary"].columns and "Interactions" in sheets)
     from core.version import VERSION
     st = dict(zip(sheets["Settings"]["Setting"], sheets["Settings"]["Value"]))
     check("the Settings sheet records the program version",

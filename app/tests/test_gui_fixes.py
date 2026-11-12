@@ -173,7 +173,7 @@ def watching(fig, path):
 gui.save_figure = watching
 log.clear(); app.export(); app.update()
 gui.save_figure = real_save
-made = lambda name: os.path.exists(os.path.join(tmp, name + "_LocationOutput_analysis.xlsx"))
+made = lambda name: os.path.exists(os.path.join(tmp, name + "_analysis.xlsx"))
 check("Export shows a progress bar naming the file, and Export, Analyze and Clear wait meanwhile",
       seen and all(row[:4] == (True, "disabled", "disabled", "disabled") for row in seen)
       and "Exporting 1 of 2" in seen[0][4] and "Exporting 2 of 2" in seen[-1][4])
@@ -181,7 +181,7 @@ check("when it finishes the bar goes, the buttons come back, and both files are 
       not app.export_bar.winfo_manager() and str(app.export_btn.cget("state")) == "normal"
       and "Export finished" in log and made("one") and made("two"))
 for name in ("one", "two"):
-    os.remove(os.path.join(tmp, name + "_LocationOutput_analysis.xlsx"))
+    os.remove(os.path.join(tmp, name + "_analysis.xlsx"))
 steps = []
 real_update = app.update
 def cancel_on_second():

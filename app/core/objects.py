@@ -441,7 +441,10 @@ def trial_summary(data: TrackingData, scoring: Scoring, fps: float, zone_cm: flo
     objects = file_objects(data)
     day, phase = trial_info(data)
     zone_px, scaled = distance_px(data, zone_cm)
-    out = {"OR_Day": day, "OR_Phase": phase,
+    # The day goes out under the standard's own name, `trial_day`, the same
+    # column every test's row has (user, 2026-11-12: "Keep trial day and
+    # drop OR day"); no `OR_Day` beside it.
+    out = {"trial_day": day, "OR_Phase": phase,
            "OR_NovelObjects": ", ".join(f"{o.name} ({o.kind.lower()})"
                                         for o in objects if o.novel) or "none"}
     out.update(object_metrics(data, scoring, fps, zone_px, min_frames))

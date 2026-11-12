@@ -453,7 +453,7 @@ def level_figure(data: TrackingData, trials, threshold_sd: float = 2.0) -> Figur
             ax.annotate(f"threshold {threshold:g} dB", (threshold, 1.0),
                         xycoords=("data", "axes fraction"), xytext=(3, -12 - 12 * k),
                         textcoords="offset points", color=color, fontsize=9)
-    quiet = trials[trials["Type"].astype(str) == "none"]["Startle amplitude"].dropna()
+    quiet = trials[trials["Type"].astype(str) == "none"]["Startle amplitude_pct"].dropna()
     if len(quiet):
         ax.axhline(float(quiet.astype(float).mean()), color="0.45", linewidth=1.0, linestyle="--",
                    label=f"no stimulus (mean of {len(quiet)})", zorder=0)

@@ -46,6 +46,36 @@ REGION_TEMPLATES = {
 OBJECT_TEST = "Object Recognition"
 
 
+def clip_to_frame(xs, ys, width: float, height: float) -> tuple[list[float], list[float]]:
+    """A drawn shape trimmed to the video frame (0..width, 0..height): the
+    part of it inside the picture, corner by corner. It's easier to draw an
+    exclusion past the edge to be sure it covers everything, and what is
+    kept and recorded is exactly what lies in the frame (user, 2026-11-12).
+    ([], []) if none of it does."""
+    points = [(float(x), float(y)) for x, y in zip(xs, ys)]
+    # Each edge of the frame in turn: keep what's on its inner side.
+    edges = ((0, 0.0, 1), (0, float(width), -1), (1, 0.0, 1), (1, float(height), -1))
+    for axis, limit, sign in edges:
+        if not points:
+            break
+        inside = lambda p: sign * (p[axis] - limit) >= 0        # noqa: E731
+        kept = []
+        for a, b in zip(points, points[1:] + points[:1]):
+            if inside(a):
+                kept.append(a)
+            if inside(a) != inside(b):                          # the edge is crossed here
+                t = (limit - a[axis]) / (b[axis] - a[axis])
+                cut = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
+                cut[axis] = limit
+                kept.append(tuple(cut))
+        points = kept
+    # corners that landed on top of each other add nothing
+    tidy = [p for k, p in enumerate(points) if p != points[k - 1]] if len(points) > 1 else points
+    if len(tidy) < 3:
+        return [], []
+    return [p[0] for p in tidy], [p[1] for p in tidy]
+
+
 def effective_dsmpl(dsmpl: float) -> float:
     """ezTrack only resizes when downsampling is below 1."""
     return dsmpl if dsmpl < 1 else 1.0
@@ -141,6 +171,15 @@ class VideoSetup:
         d = effective_dsmpl(dsmpl)
         ox, oy = self._crop_origin(dsmpl)
         return [(x + ox) / d for x in xs], [(y + oy) / d for y in ys]
+
+    def add_exclusion(self, xs, ys) -> bool:
+        """Add an exclusion shape (full-size video pixels), trimmed to the
+        frame. False if none of it is inside the picture (nothing is added)."""
+        xs, ys = clip_to_frame(xs, ys, self.info.width, self.info.height)
+        if not xs:
+            return False
+        self.exclusions.append((xs, ys))
+        return True
 
     def exclusion_mask(self, dsmpl: float) -> np.ndarray | None:
         if not self.exclusions:
@@ -241,10 +280,26 @@ class VideoSetup:
         return self.ready
 
     # --- kept in the video's info file --------------------------------------
-    def to_saved(self) -> dict:
+    # What a startle setup has no use for: it tracks no position, so there
+    # are no regions, scale or objects to save or list (user, 2026-11-12).
+    # The trial day and phase stay: they are the trial's, whatever the test
+    # (the recording apps write them for every assay).
+    NOT_FOR_STARTLE = ("regions", "scale_points", "scale_cm", "object_names", "objects",
+                       "object_kinds")
+
+    def to_saved(self, test: str = "") -> dict:
         """Everything set up for this video, as the info file keeps it (plain
         numbers and lists; shapes in full-size video pixels), so the video
-        can be added again with its setup as it was."""
+        can be added again with its setup as it was. For a startle video
+        (`test`) what startle uses: the session, crop, exclusions, typed
+        stimulus frames, and the trial day and phase as every test has them."""
+        saved = self._saved()
+        if test == ASR_TEST:
+            for key in self.NOT_FOR_STARTLE:
+                saved.pop(key, None)
+        return saved
+
+    def _saved(self) -> dict:
         shape = lambda xs, ys: {"xs": [float(x) for x in xs], "ys": [float(y) for y in ys]}  # noqa: E731
         return {
             "frame_size": [int(self.info.width), int(self.info.height)],
@@ -284,7 +339,9 @@ class VideoSetup:
             crop = tuple(float(v) for v in crop) if crop else None
             if crop is not None and len(crop) != 4:
                 return False
-            exclusions = [poly(s) for s in saved.get("exclusions") or []]
+            exclusions = [clip_to_frame(*poly(s), self.info.width, self.info.height)
+                          for s in saved.get("exclusions") or []]
+            exclusions = [shape for shape in exclusions if shape[0]]
             regions = {str(n): poly(s) for n, s in (saved.get("regions") or {}).items()}
             points = [pair(p) for p in saved.get("scale_points") or []]
             cm = saved.get("scale_cm")

@@ -558,7 +558,7 @@ class PlaybackWindow(tk.Toplevel):
         row = st.stimulus_row(k)
         t = st.rows[k]
         self.trial = k
-        amplitude = t.get("Startle amplitude")
+        amplitude = t.get("Startle amplitude_pct")
         note = t.get("Note")
         self.trial_text.configure(text=(
             f"Trial {k + 1} of {len(st.rows)}: {t['Type']}, stimulus frame {t['Stimulus_Frame']:,}, "
@@ -1211,7 +1211,7 @@ class ReviewPanel(ttk.Frame):
         shown = lambda v, f="{:g}": "" if _blank(v) else f.format(v)
         used = 0
         for k, t in enumerate(st.rows):
-            amplitude = t.get("Startle amplitude")
+            amplitude = t.get("Startle amplitude_pct")
             used += not _blank(amplitude)
             row = st.stimulus_row(k)
             frame = int(t["Stimulus_Frame"])
@@ -1219,10 +1219,10 @@ class ReviewPanel(ttk.Frame):
             note = t.get("Note") if isinstance(t.get("Note"), str) else ""
             self.tree.insert("", tk.END, iid=str(k), tags=("flag",) if _blank(amplitude) else (),
                              values=(t["Trial"], t["Type"], shown(t.get("Pulse_kHz")), f"{frame:,}",
-                                     when, shown(t.get("motion.index.before")),
-                                     shown(t.get("motion.index.after")), shown(amplitude),
+                                     when, shown(t.get("motion.index.before_pct")),
+                                     shown(t.get("motion.index.after_pct")), shown(amplitude),
                                      "" if _blank(t.get("FrameNo")) else f"{int(t['FrameNo']):,}",
-                                     shown(t.get("ReactionTime")),
+                                     shown(t.get("ReactionTime_ms")),
                                      note if row is not None else note or "outside the video"))
         if not st.rows:
             self.summary.configure(text="This file has no stimuli listed, so there are no "

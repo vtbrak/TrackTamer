@@ -289,8 +289,8 @@ apps' pieces over time (an "Apps" section per app).
   them (`metrics.spread_repeats`), and flagged above `repeated_warn_pct`.
   Never treat them as unreadable: their positions are right to a frame.
 - **Workbook sheets:** Experiment (animal and task, down the page), Summary
-  (File, `animal_id`, measures: no tracking settings, no other animal
-  columns), Time Bins, Settings, Setup. Each video keeps its own files (no
+  (File, `animal_id`, `trial_day`, `session_number`, measures: no tracking
+  settings, no other animal columns), Time Bins, Settings, Setup. Each video keeps its own files (no
   combined table).
 - **The same words in every app**: the standard's field names. No `room` or
   `app_name` columns. The capture apps keep a running log (24 fixed
@@ -304,6 +304,31 @@ baseline windows + `asr_threshold_sd` SD) and the largest response, per
 sound when there are several, and the Startle by Level plot
 (`_levels.png`). **Habituation is waiting on more calculations from the
 user; don't change it until they send them.**
+**Export rules (user, 2026-11-12; ROADMAP §13 "Changes from that check"):**
+the Summary is called **Data Summary** (tab and sheet); **every column
+heading carries its unit** (`_s`, `_ms`, `_cm`, `_px`, `_pct`, `_dB`, ...;
+counts, ratios and labels have none; `tests/test_units.py` checks every
+test's export); **each group's columns sit together** in exported tables
+(`metrics.group_together`); the analysis file is always `<video name>_
+analysis.xlsx`, **an Excel workbook with tabs, not CSV** (the user chose
+this as the standard); the Trials table has prepulse headings only for PPI
+sessions; **short-term habituation** only for a habituation session (info
+file variant `Startle Habituation`); exclusion shapes are trimmed to the
+frame. **Never handle a standard metadata field for one test only** (user,
+2026-11-12, after the trial day was wrongly taken out of startle): what the
+recording apps write for every assay, Track Tamer carries the same way in
+every test. Every test's Data Summary row starts File, `animal_id`,
+`trial_day`, `session_number` (blank when not known, never left out;
+`info.with_animal`; there is no `OR_Day`: an object trial's day, as set in
+Track Tamer, is its `trial_day`); every saved setup keeps `trial_day` (it follows the
+info file outside Object Recognition, `gui._follow_day`). Before removing
+or limiting anything that comes from an info file, ask. The standard's
+section 4 says where each field goes; keep it true.
+**Video compression bursts** (every 250th frame in Boom Box videos
+looks like motion at a low intensity threshold): known, passed to Boom Box,
+nothing changed here until a session with a mouse is seen (Boom Box 1.3.9
+records without them: `encoder_params` `intra-refresh=1`; older videos
+keep them).
 **Acoustic startle (ROADMAP §13) is built** (2026-11-09, on `main`, not released;
 the target for 1.0): test type "Acoustic Startle Response", `core/asr.py`, setup steps
 Threshold and Stimuli, `<name>_MotionIndex.csv`. Waiting on real chamber videos to

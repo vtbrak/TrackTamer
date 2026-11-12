@@ -31,6 +31,7 @@ ANIMAL_FIELDS = (
     ("date", "Trial date", "YYYY-MM-DD"),
     ("experimenter", "Experimenter", ""),
     ("trial_day", "Trial day", "1, 2, ... for a test over several days"),
+    ("session_number", "Session that day", "1, 2, ... when there's more than one a day"),
     ("notes", "Notes", ""),
 )
 SEXES = ("", "F", "M", "U")
@@ -49,9 +50,10 @@ def check_animal(values: dict) -> str:
                         "for example 2026-09-01.")
     if str(values.get("sex") or "").strip().upper() not in SEXES:
         return "Sex is F, M or U (unknown), or left blank."
-    day = str(values.get("trial_day") or "").strip()
-    if day and not day.isdigit():
-        return "Trial day is a whole number (1, 2, ...), or left blank."
+    for key, label in (("trial_day", "Trial day"), ("session_number", "Session that day")):
+        number = str(values.get(key) or "").strip()
+        if number and not number.isdigit():
+            return f"{label} is a whole number (1, 2, ...), or left blank."
     return ""
 
 

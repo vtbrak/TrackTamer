@@ -86,12 +86,39 @@ try:
           TrialInfo({"assay": "Puzzle Box"}).test is None
           and TrialInfo({"assay": "Elevated Plus"}).test is None and TrialInfo({}).test is None)
     row = with_animal({"File": "v", "Frames": 10}, info)
-    check("the Summary row carries the animal's ID right after File, and the camera's "
+    check("every test's Data Summary row carries the animal's ID, the trial day and the "
+          "session right after File, under the standard's names, and the camera's "
           "repeated-frame count",
-          list(row) == ["File", "animal_id", "Frames", "RepeatedFrames"]
-          and row["animal_id"] == "M7" and row["RepeatedFrames"] == 4)
-    check("no info file: the ID column is there, blank",
-          with_animal({"File": "v"}, None) == {"File": "v", "animal_id": ""})
+          list(row) == ["File", "animal_id", "trial_day", "session_number", "Frames",
+                        "RepeatedFrames"]
+          and row["animal_id"] == "M7" and row["trial_day"] == 1 and row["session_number"] == 2
+          and row["RepeatedFrames"] == 4)
+    check("the three columns are there, blank, when the recording app didn't say or there's "
+          "no info file (a column is never left out)",
+          with_animal({"File": "v"}, TrialInfo({"animal_id": "M1"}))
+          == {"File": "v", "animal_id": "M1", "trial_day": "", "session_number": ""}
+          and with_animal({"File": "v"}, None)
+          == {"File": "v", "animal_id": "", "trial_day": "", "session_number": ""})
+    check("an object trial's day as set in Track Tamer stands in for the info file's, so a "
+          "row never shows two days; a blank one doesn't",
+          with_animal({"File": "v", "trial_day": "3"}, info, day="3")["trial_day"] == 3
+          and list(with_animal({"File": "v", "trial_day": "3", "X": 1}, info, day="3"))
+          == ["File", "animal_id", "trial_day", "session_number", "X", "RepeatedFrames"]
+          and with_animal({"File": "v"}, info, day="")["trial_day"] == 1
+          and with_animal({"File": "v"}, None, day="2b")["trial_day"] == "2b")
+    from core.info import follow_day
+    from core.video_setup import VideoSetup
+    from core.asr import ASR_TEST
+    kept = setup(600.0)
+    kept.trial_day = "9"
+    follow_day(info, kept)
+    check("outside Object Recognition the setup's trial day is the info file's, never its own",
+          kept.trial_day == "1")
+    check("a startle setup is saved with the trial day and phase, as every test's is",
+          {"trial_day", "trial_phase"} <= set(VideoSetup.to_saved(kept, ASR_TEST))
+          and VideoSetup.to_saved(kept, ASR_TEST)["trial_day"] == "1"
+          and "regions" not in VideoSetup.to_saved(kept, ASR_TEST)
+          and {"trial_day", "trial_phase", "regions"} <= set(VideoSetup.to_saved(kept, "Open Field")))
     page = info.experiment_sections()
     check("the Experiment sheet lists the animal and the task, with the age on the test day",
           list(page) == ["Animal", "Task"] and page["Animal"]["Animal ID"] == "M7"
@@ -270,12 +297,15 @@ try:
 
     typed_video = os.path.join(tmp, "8_2024-04-08_09-46-12.mp4")
     info_file.write_fields(typed_video, {"animal_id": " M8 ", "sex": "F", "dob": "2024-02-01",
-                                         "date": "2024-04-08", "trial_day": "2", "strain": "",
+                                         "date": "2024-04-08", "trial_day": "2",
+                                         "session_number": "3", "strain": "",
                                          "notes": "typed in"}, APP_NAME, "0.9.2")
     typed = find_info(typed_video)
     check("animal information typed in Track Tamer is saved as the standard's fields, blanks "
           "left out",
-          typed.raw["animal_id"] == "M8" and typed.raw["trial_day"] == 2 and "strain" not in typed.raw
+          typed.raw["animal_id"] == "M8" and typed.raw["trial_day"] == 2
+          and typed.raw["session_number"] == 3 and "strain" not in typed.raw
+          and with_animal({"File": "v"}, typed)["session_number"] == 3
           and typed.raw["app_name"] == "Track Tamer" and typed.raw["schema_version"] == 1
           and typed.age_days() == 67 and typed.experiment_sections()["Animal"]["Sex"] == "F")
     check("such a file is Track Tamer's to change, and isn't taken for a recording app's",
@@ -298,7 +328,8 @@ try:
           check_animal({"animal_id": "M1", "sex": "f", "dob": "2024-02-01", "trial_day": "3"}) == ""
           and check_animal({}) == "" and "isn't a date" in check_animal({"dob": "1/2/24"})
           and "Sex is" in check_animal({"sex": "male"})
-          and "whole number" in check_animal({"trial_day": "two"}))
+          and "whole number" in check_animal({"trial_day": "two"})
+          and "Session that day is a whole number" in check_animal({"session_number": "2nd"}))
 
     # A draft setup from the last video tracked in the same arena.
     from core.info import arena_draft

@@ -66,13 +66,20 @@ lockw = lambda: tuple(str(w.cget("state")) for w in (app.test_box, app.fps_entry
                                                      app.smooth_entry))
 UN, LK = ("readonly",) + ("normal",) * 6, ("disabled",) * 7
 # (File, Status) of each Summary row; the animal's ID sits between them.
-rows = lambda: [app.summary_tree.item(i, "values")[0:3:2] for i in app.summary_tree.get_children()]
+def rows():
+    """(File, Status) of each row of the Data Summary."""
+    cols = list(app.summary_tree["columns"])
+    return [(v[cols.index("File")], v[cols.index("Status")])
+            for v in (app.summary_tree.item(i, "values") for i in app.summary_tree.get_children())]
 
+# Every test's row starts the same way: whose it is, and which day and session.
+DAYS = ["trial_day", "session_number"]
+LEAD = ["File", "animal_id"] + DAYS
 check("unlocked at start", lockw() == UN)
 app.add_files([O]); app.update()
 check("unlocked after add, no prompts", lockw() == UN and not log and not dialogs)
-check("File, the animal's ID, then Status",
-      list(app.summary_tree["columns"])[:3] == ["File", "animal_id", "Status"])
+check("File, the animal's ID, the trial day and session, then Status, as soon as a file is added",
+      list(app.summary_tree["columns"])[:5] == LEAD + ["Status"])
 check("tabs say not analyzed", "isn't analyzed" in app.bins_note.get())
 app.test_var.set("Open Field"); app._on_test_type(); app.bin_var.set("30"); app.update()
 check("Open Field row shown for Open Field", bool(app.of_bar.winfo_manager()))
@@ -130,23 +137,36 @@ KEY = ["EPM_ClosedOpenRatio", "EPM_Center_s", "EPM_PctSession_Center", "EPM_Open
        "EPM_PctOpenTime", "EPM_ClosedArm_s", "EPM_PctClosedTime", "EPM_OpenEntries",
        "EPM_ClosedEntries"]
 check("EPM Summary shows the key measures by default, in the user's order",
-      list(app.summary_tree["columns"]) == ["File", "animal_id", "Status"] + KEY)
+      list(app.summary_tree["columns"]) == LEAD + ["Status"] + KEY)
 r0 = app.files[0].summary
-check("summary row: File, the animal's ID, then the key measures; open/closed ratio kept "
-      "in the details; the tracking settings aren't repeated in it",
-      list(r0)[:11] == ["File", "animal_id"] + KEY and "EPM_OpenClosedRatio" in r0
+GROUPED = ["EPM_ClosedOpenRatio", "EPM_AnxietyIndex", "EPM_OpenClosedRatio",
+           "EPM_Center_s", "EPM_PctSession_Center", "EPM_CenterEntries", "EPM_Latency_Center_s",
+           "EPM_OpenArm_s", "EPM_PctOpenTime", "EPM_OpenEntries", "EPM_PctOpenEntries",
+           "EPM_Latency_Open_s", "EPM_PctSession_Open",
+           "EPM_ClosedArm_s", "EPM_PctClosedTime", "EPM_ClosedEntries", "EPM_Latency_Closed_s",
+           "EPM_PctSession_Closed"]
+check("summary row: File, the animal's ID, then the measures with each group together "
+      "(ratios; center; open arms; closed arms); the tracking settings aren't repeated in it",
+      list(r0)[:22] == LEAD + GROUPED and set(KEY) <= set(GROUPED)
       and not {"Location_Thresh", "Crop", "Video_FPS"} & set(r0)
       and abs(r0["EPM_PctOpenTime"] + r0["EPM_PctClosedTime"] - 100) < 0.2)
-check("Time Bins start with Bin, Start, End, then the key measures",
-      list(app.files[0].bins.columns)[:12] == ["Bin", "Start_s", "End_s"]
-      + [k.replace("PctSession", "PctBin") for k in KEY])
+arm = [k for k in r0 if "open arm 1" in k]
+check("each region's time, percent and entries sit together",
+      arm == ["Time_open arm 1_s", "Percent_open arm 1", "Entries_open arm 1"]
+      and list(r0).index(arm[2]) == list(r0).index(arm[0]) + 2)
+bin_cols = list(app.files[0].bins.columns)
+check("Time Bins start with Bin, Start, End, then the measures grouped the same way",
+      bin_cols[:3] == ["Bin", "Start_s", "End_s"] and bin_cols[3] == "EPM_ClosedOpenRatio"
+      and bin_cols.index("EPM_PctBin_Center") == bin_cols.index("EPM_Center_s") + 1
+      and bin_cols.index("EPM_OpenEntries") == bin_cols.index("EPM_PctOpenTime") + 1
+      and {x.replace("PctSession", "PctBin") for x in KEY} <= set(bin_cols))
 check("EPM: the center's per-region columns (repeats of EPM center) are dropped",
       not {"Time_center_s", "Percent_center", "Entries_center"} & set(r0)
       and not {"Time_center_s", "Percent_center"} & set(app.files[0].bins.columns)
       and "Time_open arm 1_s" in r0 and "EPM_Center_s" in r0)
 app.group_vars["test"].set(True); app._show_summary()
 check("More test measures adds the other EPM columns after the key ones",
-      list(app.summary_tree["columns"])[:12] == ["File", "animal_id", "Status"] + KEY
+      list(app.summary_tree["columns"])[:14] == LEAD + ["Status"] + KEY
       and "EPM_OpenClosedRatio" in app.summary_tree["columns"])
 app.group_vars["test"].set(False); app._show_summary()
 check("Time Bins include EPM measures", {"EPM_OpenEntries", "EPM_AnxietyIndex", "EPM_PctOpenTime"} <= set(app.files[0].bins.columns))
@@ -165,9 +185,10 @@ out = output_paths(E2)
 check("export writes _analysis.xlsx, _path.png, _heatmap.png", all(os.path.exists(p) for p in out.values()))
 sheets = pd.read_excel(out["analysis"], sheet_name=None)
 check("workbook sheets (no Setup sheet for a tracking file with no saved setup)",
-      list(sheets) == ["Experiment", "Summary", "Time Bins", "Settings"])
-check("exported Summary starts with File, the animal's ID and the key measures",
-      list(sheets["Summary"].columns)[:11] == ["File", "animal_id"] + KEY)
+      list(sheets) == ["Experiment", "Data Summary", "Time Bins", "Settings"])
+check("the exported Data Summary starts with File, the animal's ID, the trial day and "
+      "session, and the grouped measures",
+      list(sheets["Data Summary"].columns)[:22] == LEAD + GROUPED)
 page = sheets["Experiment"]
 check("the Experiment sheet lists the file, the animal and the task down the page, "
       "blank where nothing was recorded",
@@ -545,7 +566,7 @@ if CLIP is not None:
     book = pd.read_excel(vout["analysis"], sheet_name=None)
     plan = dict(zip(book["Setup"]["Setting"], book["Setup"]["Value"]))
     check("the workbook has a Setup sheet with the crop, regions and scale as numbers",
-          list(book) == ["Experiment", "Summary", "Time Bins", "Settings", "Setup"]
+          list(book) == ["Experiment", "Data Summary", "Time Bins", "Settings", "Setup"]
           and str(plan["Crop (x0, y0, x1, y1)"]).startswith("100.0, ")
           and set(v.regions) <= set(plan) and float(plan["Scale length (cm)"]) == v.scale_cm)
     print("   Setup sheet rows:", list(plan))
