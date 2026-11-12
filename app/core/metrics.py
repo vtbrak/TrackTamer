@@ -746,7 +746,11 @@ def _asr_keys(columns) -> list[str]:
     head = [c for c in ("ASR_Trials", "ASR_TrialsUsed") if c in columns]
     tail = [c for c in ("ASR_PPI_Overall_pct",) if c in columns] + ppi + [
         c for c in ("ASR_Habituation_pct",) if c in columns]
-    return head + per("ASR_Mean_") + tail
+    # Sessions that step through sound levels: the threshold and the largest
+    # response come right after the means per level.
+    levels = [c for c in columns if c.startswith("ASR_Threshold") and c.endswith("_dB")] \
+        + per("ASR_Max_")
+    return head + per("ASR_Mean_") + levels + tail
 
 
 def key_measures(test: str, bins: bool = False, columns=()) -> list[str]:

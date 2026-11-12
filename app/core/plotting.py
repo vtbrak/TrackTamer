@@ -418,3 +418,45 @@ def aligned_figure(data: TrackingData, trials, startle_ms: float, baseline_ms: f
     if ax.get_legend_handles_labels()[0]:
         ax.legend(frameon=False, loc="upper left")
     return fig
+
+
+def level_figure(data: TrackingData, trials, threshold_sd: float = 2.0) -> Figure:
+    """Startle amplitude against sound level: the mean at each level with
+    its spread (standard error), one line per sound, the no-stimulus trials'
+    mean as a dashed line, and each sound's startle threshold marked on the
+    level axis. For sessions that step through levels (Boom Box's Hearing
+    Test and I/O); others get a note saying there's no curve to draw."""
+    from .asr import baseline_criterion, level_curves, startle_threshold   # (asr imports this module's users)
+    fig = Figure(figsize=STARTLE_FIGSIZE, dpi=100, layout="constrained")
+    ax = fig.add_subplot(111)
+    ax.set_title(f"Startle by sound level \u2014 {data.name}")
+    ax.set_xlabel("Pulse level (dB)")
+    ax.set_ylabel("Startle amplitude (% of pixels)")
+    ax.spines[["top", "right"]].set_visible(False)
+    curves = {sound: rows for sound, rows in level_curves(trials).items() if len(rows) > 1}
+    if not curves:
+        ax.text(0.5, 0.5, "This session's pulse-alone trials use one sound level,\n"
+                "so there's no curve to draw.", transform=ax.transAxes,
+                ha="center", va="center", color="0.4")
+        return fig
+    criterion = baseline_criterion(trials, threshold_sd)
+    for k, (sound, rows) in enumerate(curves.items()):
+        color = TRIAL_COLORS[min(k, len(TRIAL_COLORS) - 1)]
+        x = [r["db"] for r in rows]
+        ax.errorbar(x, [r["mean"] for r in rows], yerr=[r["sem"] for r in rows], color=color,
+                    marker="o", markersize=5, linewidth=1.8, capsize=3,
+                    label=(sound or "pulse") + f" (mean \u00b1 SEM, {rows[0]['n']} a level)"
+                    if len({r["n"] for r in rows}) == 1 else (sound or "pulse") + " (mean \u00b1 SEM)")
+        threshold = startle_threshold(rows, criterion)
+        if threshold is not None:
+            ax.axvline(threshold, color=color, linewidth=1.0, linestyle=":", zorder=0)
+            ax.annotate(f"threshold {threshold:g} dB", (threshold, 1.0),
+                        xycoords=("data", "axes fraction"), xytext=(3, -12 - 12 * k),
+                        textcoords="offset points", color=color, fontsize=9)
+    quiet = trials[trials["Type"].astype(str) == "none"]["Startle amplitude"].dropna()
+    if len(quiet):
+        ax.axhline(float(quiet.astype(float).mean()), color="0.45", linewidth=1.0, linestyle="--",
+                   label=f"no stimulus (mean of {len(quiet)})", zorder=0)
+    ax.legend(frameon=False, loc="upper left")
+    return fig
+

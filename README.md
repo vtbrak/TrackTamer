@@ -148,9 +148,15 @@ tab lists every startle; click one to open the video at its stimulus, and use
 peak** in the playback window. The Summary
 gives the mean amplitude per trial type and pulse frequency, **% PPI**
 (overall and per prepulse level) and **% habituation** (first vs last block of
-pulse-alone trials). Results save as `<name>_MotionIndex.csv` (one row per
+pulse-alone trials). For a session that steps through sound levels (Boom
+Box's Hearing Test or I/O) it also gives the mean amplitude at each level,
+the **startle threshold** (the lowest level from which it and every louder
+level respond: a level's mean startle-window peak above the session's
+baseline-window peaks by the **Threshold criterion (SD)** setting, 2 to begin
+with) and the largest response, and the **Startle by Level** tab plots
+amplitude against level. Results save as `<name>_MotionIndex.csv` (one row per
 frame; the threshold and other settings are in the video's info file), and Export
-writes `_analysis.xlsx`, `_trace.png` and `_aligned.png`.
+writes `_analysis.xlsx`, `_trace.png`, `_aligned.png` and `_levels.png`.
 
 **Time bins** (per file): the session split into fixed-length bins (default
 60 s) with distance, mean speed, and time-in-zone per bin, plus the chosen
