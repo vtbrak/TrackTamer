@@ -166,7 +166,61 @@ check("every Trials heading that is a measurement carries its unit",
       list(plain.columns) == ["Trial", "Type", "Pulse_kHz", "Pulse_Kind", "Pulse_dB",
                               "Stimulus_Frame", "Stimulus_s", "Pixel.change_px",
                               "motion.index.before_pct", "motion.index.after_pct", "FrameNo",
-                              "Time.startle_s", "ReactionTime_ms", "Startle amplitude_pct", "Note"])
+                              "Time.startle_s", "ReactionTime_ms", "Startle amplitude_pct",
+                              "Startle_Real", "Note"])
+
+# The experimenter's review: each trial marked a real startle or not.
+from core.asr import (StartleReview, counted, review_done, save_review, startle_review,
+                      to_review)
+three = fake([{"frame": 103, "type": "pulse"}, {"frame": 105, "type": "pulse"},
+              {"frame": 500, "type": "pulse"}])
+check("before any review every trial's mark is blank, and those with an amplitude are to review",
+      list(trial_table(three)["Startle_Real"]) == ["", "", ""]
+      and list(to_review(trial_table(three))["Trial"]) == [1, 2]
+      and asr_summary(three)[0]["ASR_TrialsNotReviewed"] == 2
+      and asr_summary(three)[0]["ASR_ReviewDone"] == "no")
+plain_row = asr_summary(three)[0]
+startle_review(three).marks.update({103: True, 105: False})
+marked = trial_table(three)
+row = asr_summary(three)[0]
+check("marks show in the Trials table as yes and no, by the stimulus's video frame",
+      list(marked["Startle_Real"]) == ["yes", "no", ""] and len(to_review(marked)) == 0
+      and list(counted(marked)["Trial"]) == [1, 3])
+check("a trial marked not real keeps its numbers in the table but counts for nothing: the "
+      "mean is the other trial's alone",
+      not pd.isna(marked["Startle amplitude_pct"][1])
+      and row["ASR_Trials"] == 3 and row["ASR_TrialsUsed"] == 1 and row["ASR_TrialsNotUsed"] == 2
+      and row["ASR_TrialsMarkedNotReal"] == 1 and row["ASR_N_pulse"] == 1
+      and row["ASR_Mean_pulse_pct"] == marked["Startle amplitude_pct"][0]
+      and plain_row["ASR_N_pulse"] == 2 and plain_row["ASR_Mean_pulse_pct"] != row["ASR_Mean_pulse_pct"])
+check("the review counts sit with the trial counts, then whether it's done",
+      list(row)[1:7] == ["ASR_Trials", "ASR_TrialsUsed", "ASR_TrialsNotUsed",
+                         "ASR_TrialsMarkedNotReal", "ASR_TrialsNotReviewed", "ASR_ReviewDone"])
+check("every trial marked isn't done until the experimenter says so",
+      row["ASR_ReviewDone"] == "no" and not review_done(marked, startle_review(three)))
+startle_review(three).done = True
+check("Done with every trial marked is done; a trial unmarked again (new stimuli) isn't",
+      asr_summary(three)[0]["ASR_ReviewDone"] == "yes"
+      and not review_done(trial_table(fake([{"frame": 103}, {"frame": 106}])),
+                          StartleReview({103: True}, done=True)))
+kept = StartleReview.from_saved(startle_review(three).to_saved())
+check("the review is saved as the stimulus frames with yes or no, and read back the same",
+      kept.marks == {103: True, 105: False} and kept.done
+      and startle_review(three).to_saved()["trials"] == [{"frame": 103, "real": True},
+                                                         {"frame": 105, "real": False}])
+check("a saved review that isn't one is read as no review, not an error",
+      StartleReview.from_saved("junk").marks == {} and not StartleReview.from_saved(None).done
+      and StartleReview.from_saved({"trials": [{"frame": "x", "real": True}, 7,
+                                               {"frame": 9, "real": "yes"}]}).marks == {})
+quiet = pd.DataFrame({"Type": ["pulse"] * 4, "Pulse_dB": [90, 90, 100, 100],
+                      "Startle amplitude_pct": [1.0, 9.0, 4.0, 6.0],
+                      "motion.index.before_pct": [1.0, 8.0, 1.0, 1.2],
+                      "motion.index.after_pct": [2.0, 17.0, 5.0, 7.2],
+                      "Startle_Real": ["yes", "no", "yes", ""]})
+from core.asr import baseline_criterion as criterion_of, level_curves as curves_of
+check("startle by level and its baseline criterion leave out the trial marked not real",
+      curves_of(quiet)[""][0]["n"] == 1 and curves_of(quiet)[""][0]["mean"] == 1.0
+      and abs(criterion_of(quiet) - (np.mean([1, 1, 1.2]) + 2 * np.std([1, 1, 1.2], ddof=1))) < 1e-9)
 
 # Startle by sound level (sessions that step through levels).
 from core.asr import (TRIAL_COLUMNS, baseline_criterion, level_curves, level_measures,
@@ -329,6 +383,21 @@ try:
     check("an older motion file that holds its own settings and stimuli still loads",
           file_stimuli(old_file) == [{"frame": 70, "type": "pulse"}]
           and old_file.name == "plain.mp4" and asr_summary(old_file)[0]["ASR_Trials"] == 1)
+    # The review is kept in the video's info file, in Track Tamer's part.
+    reviewed = load_motion(os.path.join(tmp, "plain_MotionIndex.csv"))
+    first_frame = file_stimuli(reviewed)[0]["frame"]
+    startle_review(reviewed).marks[first_frame] = False
+    save_review(reviewed)
+    info_path = [f for f in os.listdir(tmp) if f.endswith("_info.json") and f.startswith("plain")][0]
+    on_disk = json.load(open(os.path.join(tmp, info_path)))["cameras"][0]["track_tamer"]
+    back = load_motion(os.path.join(tmp, "plain_MotionIndex.csv"))
+    check("a mark is saved in the video's info file without disturbing the rest, and comes "
+          "back when the file is loaded again",
+          on_disk["startle_review"]["trials"] == [{"frame": first_frame, "real": False}]
+          and on_disk["startle_review"]["done"] is False and "tracking" in on_disk
+          and startle_review(back).marks == {first_frame: False}
+          and list(trial_table(back)["Startle_Real"]) == ["no"]
+          and not startle_review(back).unsaved)
     lone = os.path.join(tmp, "lone_MotionIndex.csv")
     pd.read_csv(os.path.join(tmp, "plain_MotionIndex.csv")).to_csv(lone, index=False)
     alone = load_motion(lone)

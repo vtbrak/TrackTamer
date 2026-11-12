@@ -339,6 +339,19 @@ Track Tamer, is its `trial_day`); every saved setup keeps `trial_day` (it follow
 info file outside Object Recognition, `gui._follow_day`). Before removing
 or limiting anything that comes from an info file, ask. The standard's
 section 4 says where each field goes; keep it true.
+**Startle is always measured on the whole frame** (user, 2026-11-12): no
+crop and no exclusion step for startle (three setup steps: Trim, Threshold,
+Stimuli), because the motion index is a share of the pixels analyzed. Never
+add a way to leave part of the picture out of a startle measure. Older
+files tracked with a crop or exclusions are named at Analyze
+(`asr.part_of_frame`).
+**Startle review** (user, 2026-11-12): in the playback window each trial is
+marked a real startle or not (Yes / No, saved at every click in the info
+file's `track_tamer.startle_review`, by stimulus video frame); trials
+marked No count for nothing (`asr.counted`); no response is a Yes; "Done
+reviewing" needs every trial with an amplitude marked. The guide text is
+`review_panel.STARTLE_GUIDE` and README "Reviewing startles": keep them in
+step. GUI tests must stub `review_panel.show_warning`.
 **Video compression bursts** (every 250th frame in Boom Box videos
 looks like motion at a low intensity threshold): known, passed to Boom Box,
 nothing changed here until a session with a mouse is seen (Boom Box 1.3.9

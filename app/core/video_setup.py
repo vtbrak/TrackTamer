@@ -25,7 +25,11 @@ from .video import Prep, VideoInfo, polygon_mask
 
 STEPS = ("trim", "exclusions", "reference", "tracking", "regions", "scale")
 ASR_TEST = "Acoustic Startle Response"
-ASR_STEPS = ("trim", "exclusions", "threshold", "stimuli")
+# Startle has no crop and no exclusions (user, 2026-11-12): the motion index
+# is the changed pixels divided by the pixels analyzed, so taking part of the
+# picture out changes the number, differently wherever it's taken from. It is
+# always worked out on the whole frame.
+ASR_STEPS = ("trim", "threshold", "stimuli")
 
 
 def steps_for(test: str) -> tuple:
@@ -284,15 +288,16 @@ class VideoSetup:
     # are no regions, scale or objects to save or list (user, 2026-11-12).
     # The trial day and phase stay: they are the trial's, whatever the test
     # (the recording apps write them for every assay).
+    # Nor a crop or exclusions: the motion index is always of the whole frame.
     NOT_FOR_STARTLE = ("regions", "scale_points", "scale_cm", "object_names", "objects",
-                       "object_kinds")
+                       "object_kinds", "crop", "exclusions")
 
     def to_saved(self, test: str = "") -> dict:
         """Everything set up for this video, as the info file keeps it (plain
         numbers and lists; shapes in full-size video pixels), so the video
         can be added again with its setup as it was. For a startle video
-        (`test`) what startle uses: the session, crop, exclusions, typed
-        stimulus frames, and the trial day and phase as every test has them."""
+        (`test`) what startle uses: the session, typed stimulus frames, and
+        the trial day and phase as every test has them."""
         saved = self._saved()
         if test == ASR_TEST:
             for key in self.NOT_FOR_STARTLE:

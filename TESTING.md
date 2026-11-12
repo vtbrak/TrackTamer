@@ -119,9 +119,11 @@ not just crashes.
 
 ### D. Acoustic Startle Response
 1. Choose **Acoustic Startle Response** as the Test and add a video.
-2. In **Set up videos…**, step 3 (**Threshold**), scrub to a still moment and a
-   moment of movement. Red shows the pixels counted as movement.
-3. Step 4 (**Stimuli**) uses the recording's info file if it has one.
+2. In **Set up videos…** there are three steps (no crop and no exclusions:
+   startle is always measured on the whole picture). In step 2
+   (**Threshold**), scrub to a still moment and a moment of movement. Red
+   shows the pixels counted as movement.
+3. Step 3 (**Stimuli**) uses the recording's info file if it has one.
    Otherwise type the video frame of each stimulus.
 4. Click **Track**, then **Analyze**, and look at **Trials**, **Motion Trace**
    and **Aligned Trials**. For a session that steps through sound levels
@@ -129,6 +131,12 @@ not just crashes.
    amplitude at each level and the startle threshold. Then click **Export**.
 5. Open the **Review** tab and click a startle. In the playback window, use
    **Next trial**, **Go to peak** and the frame buttons.
+6. Mark each trial there: **Yes** if it's a real trial (no response counts as
+   Yes), **No** if the animal was already rearing or moving when the sound
+   came. **How to review…** has the full guide. Close the window partway and
+   open it again: your marks should still be there. Click **Done reviewing**
+   before every trial is marked (it should say which aren't), then after.
+   Trials marked No should drop out of the Data Summary's means.
 
 ### E. Videos from Creature Capture or Boom Box
 1. Add a video together with the `_info.json` its app saved beside it.

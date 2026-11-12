@@ -120,8 +120,8 @@ def _points(shape: dict) -> str:
 def setup_sections(saved: dict, startle: bool = False) -> dict[str, dict]:
     """A video's setup (`VideoSetup.to_saved`) as {section: {setting: value}}
     for the Setup sheet. Positions are in full-size video pixels. A startle
-    video (`startle`) has no regions, scale or objects, so those sections are
-    left out rather than listed as "none"."""
+    video (`startle`) has no crop, exclusions, regions, scale or objects, so
+    those sections are left out rather than listed as "none"."""
     number = lambda v: "" if v is None else v          # noqa: E731
     size = saved.get("frame_size") or ["", ""]
     sections = {"Session": {
@@ -131,17 +131,17 @@ def setup_sections(saved: dict, startle: bool = False) -> dict[str, dict]:
         "Session length (s)": number(saved.get("length_s")),
         "Positions below are in": "full-size video pixels (x, y)",
     }}
-    crop = saved.get("crop")
-    sections["Crop"] = {"Crop (x0, y0, x1, y1)":
-                        ", ".join(f"{v:.1f}" for v in crop) if crop else "none"}
-    if not startle:
+    if not startle:     # (startle is always the whole frame: no crop, no exclusions)
+        crop = saved.get("crop")
+        sections["Crop"] = {"Crop (x0, y0, x1, y1)":
+                            ", ".join(f"{v:.1f}" for v in crop) if crop else "none"}
         regions = saved.get("regions") or {}
         sections["Regions"] = ({name: _points(shape) for name, shape in regions.items()}
                                or {"Regions": "none"})
-    shapes = saved.get("exclusions") or []
-    sections["Exclusions"] = ({f"Shape {n}": _points(shape) for n, shape in enumerate(shapes, 1)}
-                              or {"Exclusion shapes": "none"})
-    if not startle:
+        shapes = saved.get("exclusions") or []
+        sections["Exclusions"] = ({f"Shape {n}": _points(shape)
+                                   for n, shape in enumerate(shapes, 1)}
+                                  or {"Exclusion shapes": "none"})
         points = saved.get("scale_points") or []
         sections["Scale"] = {
             "Scale points": "; ".join(f"{x:.1f}, {y:.1f}" for x, y in points) or "none",

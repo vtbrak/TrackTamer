@@ -36,6 +36,7 @@ from core.objects import (KINDS, PHASES, Bout, distance_px, file_objects, load_s
                           object_at, save_scoring, scoring_path, trial_info,
                           unreadable_copy_path,
                           update_trial_info, zone_visits)
+from core.asr import REAL_COLUMN, save_review, startle_review
 from core.playback import FrameSource, open_playback, tracked_video_path, write_tracked_video
 from dialogs import ask_yes_no, bold_font, fit_window, show_info, show_warning
 from setup_window import FrameCanvas
@@ -57,13 +58,74 @@ VISIT_COLUMNS = (("#", 34), ("Object", 90), ("Frame", 64), ("Session time", 84),
                  ("Video time", 78), ("Length (s)", 66), ("Scored", 110))
 TRIAL_COLUMNS = (("#", 34), ("Type", 104), ("kHz", 48), ("Stimulus frame", 92),
                  ("Video time", 78), ("Before", 66), ("After", 66), ("Amplitude", 76),
-                 ("Peak frame", 76), ("Reaction (ms)", 88), ("Note", 150))
+                 ("Peak frame", 76), ("Reaction (ms)", 88), ("Real startle", 84),
+                 ("Note", 150))
+MARK_TEXT = {"yes": "yes", "no": "no", "": "to review"}
 STIMULUS_COLOR = "#ffd23f"
 PEAK_COLOR = "#ff5a5a"
 STATUS_TEXT = {"scored": "interaction", "none": "no interaction", "": "to review"}
 EVENT_COLUMNS = (("#", 34), ("Frame", 64), ("Session time", 84), ("Video frame", 78),
                  ("Video time", 78), ("Length (s)", 66), ("Counted as", 96),
                  ("Px outside", 70), ("Check", 70))
+
+
+# How to review startles (user, 2026-11-12). Shown from the playback window
+# ("How to review…") and kept in step with README "Reviewing startles".
+STARTLE_GUIDE_TITLE = "How to review startles"
+STARTLE_GUIDE = """\
+Why review
+
+Track Tamer measures a startle as a jump in movement on the video just \
+after the sound. It can't tell a startle from any other movement. A mouse \
+that is rearing or walking when the sound comes gives a "startle" that \
+isn't one. So each trial is looked at, and marked real or not.
+
+For each trial
+
+1. Click the trial in the Review list, or Next trial. The video opens on \
+the stimulus frame.
+2. Go back about a second (the one-frame button, or Play at 0.25x) and \
+watch the animal up to the stimulus and through it. Go to peak shows the \
+frame Track Tamer measured.
+3. Mark it Yes or No (the Y and N keys do the same).
+
+Yes: a real trial
+
+- The animal was still or settled when the sound came, and the movement \
+after it is its reaction to the sound.
+- The animal didn't react at all. No response is a real result: mark it \
+Yes. Leaving those out would make the startle look larger than it is.
+
+No: not a real startle
+
+- The animal was already doing something else just before or during the \
+stimulus: rearing or coming down from a rear, grooming, walking, turning, \
+jumping, climbing, digging.
+- The video would count that movement as a startle, or a real startle \
+would be buried in it.
+
+Not reasons for No: a small response, no response, or a late one. Judge \
+only whether other movement was going on.
+
+What the marks do
+
+- A trial marked No stays in the Trials table with its numbers, marked \
+no, and is left out of every result: the means, startle by level, \
+prepulse inhibition and habituation. It's drawn dotted in the Aligned \
+Trials plot.
+- Each mark is saved at once in the video's info file, so closing the \
+window loses nothing. Click the other button to change a mark.
+- Trials with no amplitude (red in the list) aren't used and don't need \
+a mark.
+
+Done reviewing
+
+When every trial is marked, click Done reviewing. It records that you \
+have looked at every startle and judged that the ones marked Yes are not \
+due to other movement before or during the stimulus. The Data Summary \
+says so (ASR_ReviewDone), with how many trials were marked not real. If \
+some trials aren't marked yet, Track Tamer says which and takes you to \
+the first."""
 
 
 def clock(seconds: float) -> str:
@@ -167,6 +229,33 @@ class StartleTrials:
         self.times = data.df["Time_s"].to_numpy(dtype=float)
         self.values = data.df["MotionIndex_pct"].to_numpy(dtype=float)
         self.rows = trials.to_dict("records")
+        # The experimenter's marks (real startle or not), shared with the
+        # results: one object per loaded file.
+        self.review = startle_review(data)
+
+    def mark(self, k: int) -> str:
+        """Trial k's mark: "yes", "no", or "" (not marked)."""
+        return self.review.text(self.rows[k]["Stimulus_Frame"])
+
+    def needs_mark(self, k: int) -> bool:
+        """A trial with no amplitude isn't used, so it needs no mark."""
+        return not _blank(self.rows[k].get("Startle amplitude_pct"))
+
+    def unmarked(self) -> list[int]:
+        return [k for k in range(len(self.rows)) if self.needs_mark(k) and not self.mark(k)]
+
+    def set_mark(self, k: int, real: bool) -> None:
+        frame = int(self.rows[k]["Stimulus_Frame"])
+        self.review.marks[frame] = bool(real)
+        self.rows[k][REAL_COLUMN] = self.review.text(frame)
+
+    def progress(self) -> str:
+        """ "12 of 36 marked, 2 not real", for the status lines."""
+        need = [k for k in range(len(self.rows)) if self.needs_mark(k)]
+        marked = [k for k in need if self.mark(k)]
+        no = sum(self.mark(k) == "no" for k in range(len(self.rows)))
+        return (f"{len(marked)} of {len(need)} marked"
+                + (f", {no} not real" if no else ""))
 
     def row_of(self, frame) -> int | None:
         """The file row showing a video frame (None if it isn't analyzed)."""
@@ -214,12 +303,15 @@ class PlaybackWindow(tk.Toplevel):
     """A tracked file's video with its tracking drawn on, in its own window."""
 
     def __init__(self, parent, pb, labels, outside, title: str, scorer=None,
-                 on_visit=None, startle=None):
+                 on_visit=None, startle=None, on_mark=None, on_done=None):
         super().__init__(parent)
         self.pb = pb
         self.scorer = scorer
         self.startle = startle
         self.trial: int | None = None     # the startle trial being viewed
+        self.on_mark = on_mark or (lambda k, real: None)    # a trial marked real or not
+        self.on_done = on_done or (lambda: None)            # Done reviewing clicked
+        self._guide = None
         self.on_visit = on_visit or (lambda index: None)   # Review list follows
         try:
             self.source = FrameSource(pb)
@@ -228,7 +320,7 @@ class PlaybackWindow(tk.Toplevel):
             raise
         self._labels, self._outside = labels, outside
         self.title(f"Playback: {title}")
-        fit_window(self, 960, 900 if scorer else 800 if startle else 760)
+        fit_window(self, 960, 900 if scorer else 840 if startle else 760)
         self.minsize(600, 480)
         self.row = 0
         self.playing = False
@@ -577,6 +669,82 @@ class PlaybackWindow(tk.Toplevel):
         self.bind("<KeyPress-bracketright>", lambda e: self.go_trial(1))
         self.bind("<KeyPress-bracketleft>", lambda e: self.go_trial(-1))
         self.trial_text.configure(text="Pick a trial in the Review list, or click Next trial.")
+        # Is this trial a real startle? (user, 2026-11-12) A mouse already
+        # rearing or moving when the sound comes isn't one; the experimenter
+        # says, per trial, and each answer is saved as it's given.
+        judge = ttk.Frame(box)
+        judge.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(judge, text="Real startle?", font=bold_font()).pack(side=tk.LEFT)
+        self.yes_btn = ttk.Button(judge, text="Yes  Y", width=8,
+                                  command=lambda: self.mark_trial(True))
+        self.yes_btn.pack(side=tk.LEFT, padx=(8, 0))
+        Tooltip(self.yes_btn, "The animal was still or settled when the sound came (the Y "
+                              "key). Also Yes when it didn't react at all: no response is "
+                              "a real result.")
+        self.no_btn = ttk.Button(judge, text="No  N", width=8,
+                                 command=lambda: self.mark_trial(False))
+        self.no_btn.pack(side=tk.LEFT, padx=(6, 0))
+        Tooltip(self.no_btn, "The animal was already rearing, grooming, walking or moving "
+                             "in some other way just before or during the stimulus (the N "
+                             "key). The trial is left out of the results.")
+        self.mark_text = ttk.Label(judge, anchor=tk.W)
+        self.mark_text.pack(side=tk.LEFT, padx=(10, 0))
+        self.done_btn = ttk.Button(judge, text="Done reviewing", command=self.finish_review)
+        self.done_btn.pack(side=tk.RIGHT)
+        Tooltip(self.done_btn, "Click when every trial is marked. It records that you have "
+                               "looked at every startle and judged that the ones marked Yes "
+                               "are not due to other movement before or during the stimulus.")
+        guide = ttk.Button(judge, text="How to review…", command=self.show_guide)
+        guide.pack(side=tk.RIGHT, padx=(0, 6))
+        Tooltip(guide, "What to look for in each trial, and what Yes and No mean.")
+        for key, real in (("y", True), ("Y", True), ("n", False), ("N", False)):
+            self.bind(f"<KeyPress-{key}>",
+                      lambda e, real=real: self._key(e, lambda: self.mark_trial(real)))
+        self.show_mark()
+
+    def show_mark(self) -> None:
+        """The status beside the Yes and No buttons: this trial's mark, how
+        far the review has got, and whether it's done."""
+        st = self.startle
+        if st is None or not self.winfo_exists():
+            return
+        if self.trial is None or self.trial >= len(st.rows):
+            here = ""
+        elif not st.needs_mark(self.trial):
+            here = f"Trial {st.rows[self.trial]['Trial']}: no amplitude, no mark needed.   "
+        else:
+            mark = st.mark(self.trial)
+            here = (f"Trial {st.rows[self.trial]['Trial']}: "
+                    + (f"marked {mark.upper()}" if mark else "not marked yet") + ".   ")
+        self.mark_text.configure(text=here + st.progress() + ".")
+        self.done_btn.configure(text="Review done ✓" if st.review.done and not st.unmarked()
+                                else "Done reviewing")
+
+    def mark_trial(self, real: bool) -> None:
+        """Mark the trial being viewed as a real startle or not."""
+        st = self.startle
+        if self.trial is None:
+            self.mark_text.configure(text="Pick a trial first (the Review list, or Next trial).")
+            return
+        if not st.needs_mark(self.trial):
+            self.show_mark()
+            return
+        self.on_mark(self.trial, real)
+        self.show_mark()
+
+    def finish_review(self) -> None:
+        self.pause()
+        self.on_done()
+        self.show_mark()
+
+    def show_guide(self) -> None:
+        """The written guide, in its own window so it can stay open beside
+        the video."""
+        if self._guide is not None and self._guide.winfo_exists():
+            self._guide.deiconify()
+            self._guide.lift()
+            return
+        self._guide = GuideWindow(self, STARTLE_GUIDE_TITLE, STARTLE_GUIDE)
 
     def open_trial(self, k: int) -> None:
         """Show trial k at its stimulus frame."""
@@ -591,6 +759,7 @@ class PlaybackWindow(tk.Toplevel):
             f"Trial {k + 1} of {len(st.rows)}: {t['Type']}, stimulus frame {t['Stimulus_Frame']:,}, "
             + ("no amplitude" if _blank(amplitude) else f"amplitude {amplitude:g}")
             + (f" ({note})" if isinstance(note, str) and note else "")))
+        self.show_mark()
         if row is None:
             self._redraw()
             return
@@ -892,6 +1061,36 @@ class PlaybackWindow(tk.Toplevel):
         self.destroy()
 
 
+class GuideWindow(tk.Toplevel):
+    """Written guidance in a window of its own (not modal: it can stay open
+    beside the video). Lines that stand alone and end without a full stop
+    are headings."""
+
+    def __init__(self, parent, title: str, text: str):
+        super().__init__(parent)
+        self.title(title)
+        fit_window(self, 560, 640)
+        self.minsize(360, 300)
+        body = ttk.Frame(self, padding=(12, 10, 12, 10))
+        body.pack(fill=tk.BOTH, expand=True)
+        ttk.Button(body, text="Close", command=self.destroy).pack(side=tk.BOTTOM, anchor=tk.E,
+                                                                   pady=(8, 0))
+        bar = ttk.Scrollbar(body, orient="vertical")
+        bar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.text = tk.Text(body, wrap="word", yscrollcommand=bar.set, borderwidth=0,
+                            highlightthickness=0, padx=6, pady=4, spacing1=2, spacing3=4)
+        self.text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        bar.configure(command=self.text.yview)
+        self.text.tag_configure("heading", font=bold_font(), spacing1=10)
+        lines = text.split("\n")
+        for n, line in enumerate(lines):
+            alone = (line and (n == 0 or not lines[n - 1]) and (n + 1 == len(lines) or not lines[n + 1])
+                     and not line.rstrip().endswith((".", ":", ")")) and len(line) < 40)
+            self.text.insert(tk.END, line + "\n", ("heading",) if alone else ())
+        self.text.configure(state="disabled")     # read-only (still selectable)
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+
 class TrialInfoDialog(tk.Toplevel):
     """Change each object's type, the trial day and the phase after tracking
     (ROADMAP §15). `on_save(kinds, day, phase)` returns True once saved; if
@@ -953,6 +1152,7 @@ class ReviewPanel(ttk.Frame):
         self.on_scored = on_scored or (lambda data: None)
         self.scorer: ObjectScorer | None = None
         self.startle: StartleTrials | None = None
+        self._warned_unsaved = False    # told once that the startle review can't be saved
         self.pb = None
         self._data = None
         self._title = ""
@@ -1114,7 +1314,9 @@ class ReviewPanel(ttk.Frame):
                 self.window = PlaybackWindow(self.winfo_toplevel(), self.pb, self._labels,
                                              self._outside, self._title, scorer=self.scorer,
                                              on_visit=self._select_visit,
-                                             startle=self.startle)
+                                             startle=self.startle,
+                                             on_mark=self._mark_trial,
+                                             on_done=self._finish_review)
             except Exception as exc:
                 traceback.print_exc()
                 show_warning(self, "The video couldn't be opened",
@@ -1131,6 +1333,71 @@ class ReviewPanel(ttk.Frame):
     def pause(self) -> None:
         if self.window is not None and self.window.winfo_exists():
             self.window.pause()
+
+    # ------------------------------------------------ reviewing startles
+    def _save_review(self) -> None:
+        """Save the marks in the video's info file, now (so closing a window
+        by accident loses nothing). If that fails they're kept, and used,
+        while the app is open; the user is told once."""
+        try:
+            save_review(self._data, self.pb.video if self.pb is not None else None)
+        except OSError as exc:
+            traceback.print_exc()
+            if not self._warned_unsaved:
+                self._warned_unsaved = True
+                show_warning(self.window if self.window is not None and self.window.winfo_exists()
+                             else self, "The review wasn't saved",
+                             "The review couldn't be saved to the video's info file.\n\n"
+                             f"{exc}\n\nYour marks are kept while Track Tamer is open and "
+                             "are used in the results; they're saved with the next mark "
+                             "that can be written.")
+        else:
+            self._warned_unsaved = False
+
+    def _after_review(self) -> None:
+        """The marks changed: show them in the list and the window, and let
+        the results follow."""
+        data, keep = self._data, self.window.trial if self.window is not None else None
+        self._fill_events()
+        self.on_scored(data)        # (an analyzed file's results are worked out again)
+        if self.window is not None and self.window.winfo_exists():
+            if self.window.trial is None:
+                self.window.trial = keep
+            self.window.show_mark()
+
+    def _mark_trial(self, k: int, real: bool) -> None:
+        """Trial k was marked a real startle (or not) in the playback window."""
+        if self.startle is None or not 0 <= k < len(self.startle.rows):
+            return
+        self.startle.set_mark(k, real)
+        self._save_review()
+        self._after_review()
+
+    def _finish_review(self) -> None:
+        """Done reviewing: only once every trial with an amplitude is marked.
+        Otherwise say which aren't, and go to the first."""
+        st = self.startle
+        if st is None:
+            return
+        win = self.window if self.window is not None and self.window.winfo_exists() else self
+        left = st.unmarked()
+        if left:
+            numbers = ", ".join(str(st.rows[k]["Trial"]) for k in left[:30])
+            more = f" and {len(left) - 30} more" if len(left) > 30 else ""
+            one = len(left) == 1
+            show_warning(win, "Not every startle is marked",
+                         f"{len(left)} {'trial isn' if one else 'trials aren'}'t marked yet, "
+                         "so the review isn't done.\n\n"
+                         f"Not marked: trial{'' if one else 's'} {numbers}{more}.\n\n"
+                         "Mark each one Yes or No (a trial with no response is a Yes), then "
+                         "click Done reviewing again. The video is on the first of them.")
+            if self.window is not None and self.window.winfo_exists():
+                self.window.open_trial(left[0])
+            return
+        if not st.review.done:
+            st.review.done = True
+            self._save_review()
+        self._after_review()
 
     def zone_changed(self, cm: float) -> None:
         """The zone distance changed (object recognition): work out the zone
@@ -1250,15 +1517,22 @@ class ReviewPanel(ttk.Frame):
                                      shown(t.get("motion.index.after_pct")), shown(amplitude),
                                      "" if _blank(t.get("FrameNo")) else f"{int(t['FrameNo']):,}",
                                      shown(t.get("ReactionTime_ms")),
+                                     MARK_TEXT[st.mark(k)] if st.needs_mark(k) else "",
                                      note if row is not None else note or "outside the video"))
         if not st.rows:
             self.summary.configure(text="This file has no stimuli listed, so there are no "
                                         "startles to show.")
             return
+        left = len(st.unmarked())
+        state = ("Review done." if st.review.done and not left else
+                 "All marked: click Done reviewing in the playback window." if not left else
+                 "Review not done yet.")
         self.summary.configure(text=(
             f"{len(st.rows)} trials, {used} with an amplitude. Click a row to open the video "
             "at that stimulus; in the playback window, Previous and Next trial move "
-            "between them. Rows in red have no amplitude; the Note says why."))
+            "between them. Rows in red have no amplitude; the Note says why. "
+            "Mark each trial there as a real startle or not (How to review… explains): "
+            f"{st.progress()}. {state}"))
         if self.window is not None and self.window.winfo_exists() and self.window.trial is not None:
             self._select_visit(self.window.trial)
 

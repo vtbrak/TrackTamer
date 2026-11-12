@@ -1414,8 +1414,58 @@ Trials / Motion Trace / Aligned Trials; tests `test_asr.py`, `test_asr_gui.py`).
     an older setup is restored): it's easier to draw past the edge to cover
     everything (`video_setup.clip_to_frame`).
   - The Settings sheet lists repeated frames once (not again under Camera).
+  - **Startle has no crop and no exclusions; the motion index is always of
+    the whole frame** (user, 2026-11-12, with the first data from an animal:
+    "take out the cropping part of the program. The motion index is
+    calculated from a division involving total pixels so cropping will
+    change that calculation unevenly depending on where you crop it. also
+    take out exclusion drawing for startle for the same reason"). The
+    startle setup has three steps: Trim, Threshold, Stimuli
+    (`video_setup.ASR_STEPS`); a crop or exclusions a setup holds from
+    another test are not used, saved or recorded (`asr.make_asr_job`), and
+    the Setup sheet has no Crop or Exclusions section. Files tracked with
+    them in 0.9.4 or earlier still load, and Analyze names them
+    (`asr.part_of_frame`, `gui._warn_part_of_frame`): their index is a share
+    of the part kept, so they need tracking again before they're compared.
+    Location tests keep their crop and exclusions (they find a position;
+    nothing is divided by the pixel count).
+  - **Reviewing startles: real or not** (user, 2026-11-12: "Need a place to
+    mark if a startle is real or not in the playback review video screen
+    make a yes or no button ... what we are looking to exclude is if a mouse
+    is rearing or already performing some other movement action during the
+    stimulus that would be interpreted by the video as a 'startle'"; "No
+    response is OK").
+    - The playback window's Startle trials box asks "Real startle?" with
+      **Yes** and **No** (keys Y and N). Each mark is written to the
+      video's info file as it's made (`track_tamer.startle_review`: `done`,
+      and `trials` as `{frame, real}` by the stimulus's video frame, so
+      marks stay on the same stimuli when a video is tracked again), so an
+      accidental close loses nothing. A save that fails keeps the marks in
+      memory, in use, and says so once (`asr.StartleReview`,
+      `asr.save_review`).
+    - A trial marked No keeps its row and numbers in the Trials table
+      (`Startle_Real` yes / no / blank) and **counts for nothing**: the
+      means, startle by level and its baseline criterion, PPI and
+      short-term habituation (`asr.counted`), exactly as a trial with no
+      amplitude already did (so habituation's own rule is unchanged). It is
+      drawn dotted in the Aligned Trials plot. A trial with no response is
+      a Yes. Trials with no amplitude need no mark.
+    - **Done reviewing** means the experimenter has looked at every startle
+      and judged the ones marked Yes not to be due to other movement before
+      or during the stimulus. With trials unmarked it warns, names them,
+      goes to the first, and isn't done.
+    - The Data Summary has `ASR_TrialsMarkedNotReal`,
+      `ASR_TrialsNotReviewed` and `ASR_ReviewDone` beside the trial counts;
+      the Review list has a "Real startle" column and says how far the
+      review has got.
+    - The written guide (what to look at, what Yes and No mean) opens from
+      **How to review…** in the playback window and is in the README
+      (`review_panel.STARTLE_GUIDE`; keep the two in step).
+    - Not built (not asked for): a warning at Export when a session's
+      review isn't done.
   - **A startle setup holds only what startle uses** (user, 2026-11-12): the
-    session, crop, exclusions and typed stimulus frames. No regions, scale,
+    session and typed stimulus frames (the crop and exclusions went the
+    same day, above). No regions, scale,
     objects or trial day in the info file's saved setup
     (`VideoSetup.to_saved(test)`), and no "Regions: none" or "Scale: none"
     rows on the Setup sheet (`export.setup_sections(startle=True)`). The
