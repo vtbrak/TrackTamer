@@ -325,18 +325,16 @@ info file outside Object Recognition, `gui._follow_day`). Before removing
 or limiting anything that comes from an info file, ask. The standard's
 section 4 says where each field goes; keep it true.
 **Startle is always measured on the whole frame** (user, 2026-11-12): no
-crop and no exclusion step for startle (three setup steps: Trim, Threshold,
-Stimuli), because the motion index is a share of the pixels analyzed. Never
+crop and no exclusion step for startle, because the motion index is a share
+of the pixels analyzed. The startle setup is two steps, Trim and Threshold:
+the Stimuli step went too (stimuli come from Boom Box's info file;
+`asr.stimulus_note` says so on the Threshold step and at Track). Never
 add a way to leave part of the picture out of a startle measure. Older
 files tracked with a crop or exclusions are named at Analyze
 (`asr.part_of_frame`).
-**Startle review** (user, 2026-11-12): in the playback window each trial is
-marked a real startle or not (Yes / No, saved at every click in the info
-file's `track_tamer.startle_review`, by stimulus video frame); trials
-marked No count for nothing (`asr.counted`); no response is a Yes; "Done
-reviewing" needs every trial with an amplitude marked. The guide text is
-`review_panel.STARTLE_GUIDE` and README "Reviewing startles": keep them in
-step. GUI tests must stub `review_panel.show_warning`.
+**No per-trial "real startle" marking** (built and taken out on
+2026-11-12; user: "The data is too subjective"): don't bring a human
+yes/no judgment of startles back unless asked (ROADMAP §13).
 **Video compression bursts** (every 250th frame in Boom Box videos
 looks like motion at a low intensity threshold): known, passed to Boom Box,
 nothing changed here until a session with a mouse is seen (Boom Box 1.3.9
@@ -344,7 +342,7 @@ records without them: `encoder_params` `intra-refresh=1`; older videos
 keep them).
 **Acoustic startle (ROADMAP §13) is built** (2026-11-09, on `main`, not released;
 the target for 1.0): test type "Acoustic Startle Response", `core/asr.py`, setup steps
-Threshold and Stimuli, `<name>_MotionIndex.csv`. Waiting on real chamber videos to
+Trim and Threshold, `<name>_MotionIndex.csv`. Waiting on real chamber videos to
 validate. The user cites papers outside the app (no in-app citation for ASR). Freeze Analysis
 decisions are recorded only; **don't build it until the user says so.** Adapted ezTrack code (core/video.py, tracking.py, playback.py) keeps the
 GPL-3.0 license and credits ezTrack at the top of each file; keep doing so.

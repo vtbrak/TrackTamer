@@ -26,7 +26,7 @@ from PIL import Image, ImageDraw, ImageTk
 from core.plotting import _label_points
 from core.tracking import METHODS, TrackingParams, locate
 from core.video import Prep, VideoReader
-from core.asr import analyzed_pixels, changed_pixels, find_info, parse_frames, stimuli_from_info
+from core.asr import analyzed_pixels, changed_pixels, stimulus_note
 from core.objects import KINDS, PHASES
 from core.video_setup import (ASR_TEST, OBJECT_TEST, OUTLINE, REGION_TEMPLATES, effective_dsmpl,
                               steps_for)
@@ -41,11 +41,11 @@ STEP_TITLES = {
     "regions": "5  Regions",
     "scale": "6  Scale",
     "threshold": "3  Threshold",
-    "stimuli": "4  Stimuli",
 }
-# Startle has three steps: no crop and no exclusions (the motion index is
-# always of the whole frame; user, 2026-11-12).
-ASR_STEP_TITLES = {"trim": "1  Trim", "threshold": "2  Threshold", "stimuli": "3  Stimuli"}
+# Startle has two steps: no crop and no exclusions (the motion index is
+# always of the whole frame), and no Stimuli step (they come from the
+# recording app's info file; user, 2026-11-12).
+ASR_STEP_TITLES = {"trim": "1  Trim", "threshold": "2  Threshold"}
 ASR_HIGHLIGHT = (40, 40, 255)   # above-threshold pixels in the preview (red, as BGR)
 DOWNSAMPLE_CHOICES = ("1", "0.75", "0.5", "0.25")
 # Session length choices in minutes, per test (C5b item 2); others can be typed.
@@ -636,8 +636,7 @@ class SetupWindow(tk.Toplevel):
             {"trim": self._step_trim, "exclusions": self._step_exclusions,
              "reference": self._step_reference, "tracking": self._step_tracking,
              "regions": (self._step_objects if self._objects_test() else self._step_regions),
-             "scale": self._step_scale, "threshold": self._step_threshold,
-             "stimuli": self._step_stimuli}[step]()
+             "scale": self._step_scale, "threshold": self._step_threshold}[step]()
         except (ValueError, OSError, cv2.error) as exc:
             # The video can't be opened or read (moved, its drive unplugged):
             # say so instead of leaving a half-built step.
@@ -711,20 +710,6 @@ class SetupWindow(tk.Toplevel):
                 show_info(self, "Invalid threshold",
                           "The intensity threshold must be a number from 0 to 255.")
                 return False
-        elif step == "stimuli":
-            if self.stimuli_text is not None:
-                try:
-                    s.stimulus_frames = parse_frames(self.stimuli_text.get("1.0", tk.END))
-                except ValueError as exc:
-                    show_info(self, "Invalid stimulus frames", f"The stimulus frames couldn't "
-                              f"be read.\n\n{exc} Use whole frame numbers separated by "
-                              "commas, spaces or new lines.")
-                    return False
-                if not s.stimulus_frames and not ask_yes_no(
-                        self, "No stimuli listed",
-                        "No stimuli are listed for this video. The motion index can still "
-                        "be worked out, but there will be no trials. Go on anyway?"):
-                    return False
         elif step == "regions" and self._objects_test():
             missing = s.missing_regions(self._test())
             if missing and not ask_yes_no(
@@ -1561,6 +1546,13 @@ class SetupWindow(tk.Toplevel):
                   state=state).pack(side=tk.LEFT)
         self.threshold_text = ttk.Label(self.controls, anchor=tk.W)
         self.threshold_text.pack(fill=tk.X, pady=(6, 0))
+        # Where this video's stimuli come from (there's nothing to set: the
+        # recording app's info file lists them).
+        count, note = stimulus_note(s.path, s.stimulus_frames)
+        self.stimuli_note = ttk.Label(self.controls, text=note, anchor=tk.W, justify=tk.LEFT,
+                                      wraplength=640,
+                                      foreground="gray" if count else "#c62828")
+        self.stimuli_note.pack(fill=tk.X, pady=(6, 0))
         self._asr_trace = self.app.asr_threshold_var.trace_add(
             "write", lambda *_: self._threshold_typed())
         self._load_threshold_frame()
@@ -1603,38 +1595,6 @@ class SetupWindow(tk.Toplevel):
         self.threshold_text.configure(
             text=f"Motion index at this frame: {100 * count / total:.4f}% "
                  f"({count:,} of {total:,} pixels)" if total else "")
-
-    def _step_stimuli(self) -> None:
-        s = self.setup
-        with VideoReader(s.path, Prep()) as reader:
-            self.canvas.show(reader.read_at(s.start))
-        found = find_info(s.path)
-        stimuli = stimuli_from_info(found[0]) if found else []
-        self.stimuli_text = None
-        if stimuli:
-            kinds: dict[str, int] = {}
-            for item in stimuli:
-                kinds[item["type"]] = kinds.get(item["type"], 0) + 1
-            listed = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
-            self.instructions.configure(text=(
-                f"{len(stimuli)} stimuli were found in this video's info file ({listed}). "
-                "Their times and types are used automatically."))
-            return
-        self.instructions.configure(text=(
-            "This video has no info file listing its stimuli, so type them in: the video "
-            "frame of each stimulus, counting from 0, separated by commas, spaces or new "
-            "lines. Each is treated as a pulse."))
-        ttk.Label(self.controls, text="Stimulus frames:").pack(anchor="w")
-        self.stimuli_text = tk.Text(self.controls, height=3, width=70, wrap="word")
-        self.stimuli_text.insert("1.0", ", ".join(str(f) for f in s.stimulus_frames))
-        self.stimuli_text.pack(fill=tk.X)
-        self.stimuli_text.bind("<KeyRelease>", lambda _e: self._stimuli_typed())
-
-    def _stimuli_typed(self) -> None:
-        try:
-            self.setup.stimulus_frames = parse_frames(self.stimuli_text.get("1.0", tk.END))
-        except ValueError:
-            pass    # still typing; Next says what's wrong
 
     # ------------------------------------------------- step 5: objects (§15)
     def _step_objects(self) -> None:

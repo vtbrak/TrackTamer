@@ -80,7 +80,7 @@ from core.video import (MISSING_STAMPS_ALLOWED, VIDEO_EXTENSIONS, UNREADABLE_WAR
 from core.version import VERSION
 from core.video_setup import OBJECT_TEST, VideoSetup
 from core.asr import (ASR_TEST, HABITUATION_VARIANT, asr_summary, is_motion_file, load_motion, make_asr_job,
-                      part_of_frame, real_frame_rate, trial_table)
+                      part_of_frame, real_frame_rate, stimulus_note, trial_table)
 from core.plotting import aligned_figure, level_figure, motion_figure
 from core.objects import (distance_px, load_scoring, object_metrics, scoring_table,
                           trial_info, trial_summary)
@@ -2708,6 +2708,21 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                       "Track again.")
         if not ready:
             return
+
+        if test == ASR_TEST:
+            # Stimuli come from the recording app's info file (there's no
+            # step to type them): say which videos have none before running.
+            none = [g[0] for g in ready
+                    if not stimulus_note(g[0].video.path, g[0].video.stimulus_frames)[0]]
+            if none and not ask_yes_no(
+                    self, "Some videos have no stimuli",
+                    "Some videos have no stimuli, so there would be no trials to "
+                    f"measure for them.\n\n{self._names(none)}\n\n"
+                    "The stimuli come from the info file Boom Box saves beside each "
+                    "video: put it in the video's folder, add the video again, and "
+                    "track it then. Tracking now works out the motion index only. "
+                    "Track anyway?", yes="Track Anyway", no="Cancel"):
+                return
 
         dsmpl = float(self.config_data["video_downsample"])
         gaps = []

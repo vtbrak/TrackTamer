@@ -494,6 +494,10 @@ if CLIP is not None:
     t = time.time()
     while pw.playing and time.time() - t < 20:
         pw.update(); time.sleep(0.01)
+    # (this check has failed now and then, ROADMAP "To look at later": say how
+    # long playback took and where it was, so a failure explains itself)
+    print(f"   playback at 8x: {time.time() - t:.1f} s of the 20 s allowed, stopped={not pw.playing}, "
+          f"at frame {pw.row + 1} of {pw.pb.n_frames}")
     check("plays to the end and stops", not pw.playing and pw.row == pw.pb.n_frames - 1)
     pw.step(-5); check("frame step back", pw.row == pw.pb.n_frames - 6)
     pw.show(50); pw.skip(-10)

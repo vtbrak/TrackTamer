@@ -376,9 +376,7 @@ def motion_figure(data: TrackingData, trials) -> Figure:
 
 def aligned_figure(data: TrackingData, trials, startle_ms: float, baseline_ms: float) -> Figure:
     """Every trial's motion index lined up on its stimulus: thin lines for
-    trials, a heavy line for each trial type's mean. Trials the experimenter
-    marked as not a real startle are drawn dotted in gray and left out of
-    the means, as they are out of the results."""
+    trials, a heavy line for each trial type's mean."""
     fig = Figure(figsize=STARTLE_FIGSIZE, dpi=100, layout="constrained")
     ax = fig.add_subplot(111)
     ax.set_title(f"Trials aligned to the stimulus \u2014 {data.name}")
@@ -400,13 +398,10 @@ def aligned_figure(data: TrackingData, trials, startle_ms: float, baseline_ms: f
     offsets = np.arange(-before + 1, after + 1)
     x = offsets * step * 1000
     kinds = sorted(trials["Type"].astype(str).unique())
-    left_out = 0
     for k, kind in enumerate(kinds):
         color = TRIAL_COLORS[min(k, len(TRIAL_COLORS) - 1)]
         traces = []
-        of_kind = trials[trials["Type"].astype(str) == kind]
-        marks = of_kind["Startle_Real"] if "Startle_Real" in of_kind.columns else [""] * len(of_kind)
-        for frame, mark in zip(of_kind["Stimulus_Frame"], marks):
+        for frame in trials.loc[trials["Type"].astype(str) == kind, "Stimulus_Frame"]:
             at = np.flatnonzero(frames == int(frame))
             if at.size == 0:
                 continue
@@ -414,11 +409,6 @@ def aligned_figure(data: TrackingData, trials, startle_ms: float, baseline_ms: f
             trace = np.full(len(rows), np.nan)
             good = (rows >= 0) & (rows < len(values))
             trace[good] = values[rows[good]]
-            if mark == "no":
-                left_out += 1
-                ax.plot(x, trace, color="0.55", linewidth=0.8, linestyle=":",
-                        label="marked not a real startle (left out)" if left_out == 1 else None)
-                continue
             traces.append(trace)
             ax.plot(x, trace, color=color, linewidth=0.7, alpha=0.3)
         if traces and np.any(~np.isnan(np.array(traces))):
@@ -436,8 +426,7 @@ def level_figure(data: TrackingData, trials, threshold_sd: float = 2.0) -> Figur
     mean as a dashed line, and each sound's startle threshold marked on the
     level axis. For sessions that step through levels (Boom Box's Hearing
     Test and I/O); others get a note saying there's no curve to draw."""
-    from .asr import (baseline_criterion, counted, level_curves,      # (asr imports this
-                      startle_threshold)                              # module's users)
+    from .asr import baseline_criterion, level_curves, startle_threshold   # (asr imports this module's users)
     fig = Figure(figsize=STARTLE_FIGSIZE, dpi=100, layout="constrained")
     ax = fig.add_subplot(111)
     ax.set_title(f"Startle by sound level \u2014 {data.name}")
@@ -464,8 +453,7 @@ def level_figure(data: TrackingData, trials, threshold_sd: float = 2.0) -> Figur
             ax.annotate(f"threshold {threshold:g} dB", (threshold, 1.0),
                         xycoords=("data", "axes fraction"), xytext=(3, -12 - 12 * k),
                         textcoords="offset points", color=color, fontsize=9)
-    kept = counted(trials)
-    quiet = kept[kept["Type"].astype(str) == "none"]["Startle amplitude_pct"].dropna()
+    quiet = trials[trials["Type"].astype(str) == "none"]["Startle amplitude_pct"].dropna()
     if len(quiet):
         ax.axhline(float(quiet.astype(float).mean()), color="0.45", linewidth=1.0, linestyle="--",
                    label=f"no stimulus (mean of {len(quiet)})", zorder=0)

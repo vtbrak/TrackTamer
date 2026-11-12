@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import math
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 import cv2
@@ -169,6 +169,29 @@ def stimuli_from_info(info: dict | None) -> list[dict]:
             entry["pulse_stimulus"] = str(kind)
         out.append(entry)
     return out
+
+
+def stimulus_note(video_path: str, typed_frames=()) -> tuple[int, str]:
+    """(how many stimuli a video has, a sentence saying where they come
+    from), for the setup window and Track. The recording app's info file
+    lists them; frames typed in Track Tamer 0.9.4 or earlier, kept in a
+    saved setup, still count. 0 when there are none: the motion index can be
+    worked out, but there are no trials to measure."""
+    found = find_info(video_path)
+    stimuli = stimuli_from_info(found[0]) if found else []
+    if stimuli:
+        kinds: dict[str, int] = {}
+        for item in stimuli:
+            kinds[item["type"]] = kinds.get(item["type"], 0) + 1
+        listed = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
+        return len(stimuli), (f"{len(stimuli)} stimuli were found in this video's info file "
+                              f"({listed}). Their times and types are used automatically.")
+    if typed_frames:
+        return len(typed_frames), (f"{len(typed_frames)} stimulus frames typed in for this video "
+                                   "in an earlier version of Track Tamer are used.")
+    return 0, ("No stimuli were found for this video: its info file (the one Boom Box saves "
+               "beside the video) is missing or lists none. Put the info file in the "
+               "video's folder; without it there are no trials to measure.")
 
 
 def parse_frames(text: str) -> list[int]:
@@ -327,127 +350,11 @@ def file_stimuli(data: TrackingData) -> list[dict]:
         return []
 
 
-# --- the experimenter's review of each startle ------------------------------
-# A motion index can't tell a startle from any other movement: a mouse that
-# is rearing, grooming or walking when the sound comes gives a "response"
-# that isn't one. So each trial is looked at in the playback window and
-# marked real (yes) or not (no), and the trials marked no are left out of
-# every measure (user, 2026-11-12). No response at all is a real trial: it
-# is marked yes. The marks are kept in the video's info file, in Track
-# Tamer's own part, by the stimulus's video frame, so they stay on the same
-# moments when the video is tracked again.
-REAL_COLUMN = "Startle_Real"        # Trials table: "yes", "no", or "" (not reviewed yet)
-REVIEW_KEY = "startle_review"       # in the video's `track_tamer` object
-YES, NO = "yes", "no"
-
-
-@dataclass
-class StartleReview:
-    """Which trials the experimenter marked as real startles, and whether
-    they said the review is done."""
-    marks: dict = field(default_factory=dict)   # stimulus video frame -> True (real) / False
-    done: bool = False
-    # True when the last save failed: the marks are in memory only (they are
-    # still used by the results).
-    unsaved: bool = False
-
-    def text(self, frame) -> str:
-        """ "yes", "no", or "" for a stimulus's video frame."""
-        mark = self.marks.get(int(frame))
-        return "" if mark is None else YES if mark else NO
-
-    def to_saved(self) -> dict:
-        return {"done": bool(self.done), "saved": datetime.now().isoformat(timespec="seconds"),
-                "trials": [{"frame": int(f), "real": bool(r)}
-                           for f, r in sorted(self.marks.items())]}
-
-    @classmethod
-    def from_saved(cls, raw) -> "StartleReview":
-        review = cls()
-        if not isinstance(raw, dict):
-            return review
-        for entry in raw.get("trials") or []:
-            if (isinstance(entry, dict) and isinstance(entry.get("real"), bool)
-                    and isinstance(entry.get("frame"), (int, float))
-                    and not isinstance(entry.get("frame"), bool)):
-                review.marks[int(entry["frame"])] = entry["real"]
-        review.done = raw.get("done") is True
-        return review
-
-
-def startle_review(data: TrackingData) -> StartleReview:
-    """A motion file's review: read from its video's info file the first
-    time, then the same object for as long as the file is loaded (so marks
-    that couldn't be saved are still used)."""
-    review = getattr(data, "_startle_review", None)
-    if review is None:
-        saved = None
-        try:
-            found = info_file.for_output(data.path)
-            own = found[2].get(info_file.OWN) if found else None
-            saved = own.get(REVIEW_KEY) if isinstance(own, dict) else None
-        except OSError:
-            pass
-        review = StartleReview.from_saved(saved)
-        data._startle_review = review
-    return review
-
-
-def save_review(data: TrackingData, video_path: str | None = None,
-                label: str | None = None) -> None:
-    """Write a motion file's review into its video's info file (whole, under
-    a temporary name, then put in place). Called after every mark, so
-    closing the window by accident loses nothing. If no info file names the
-    motion file, the video's own is used (`video_path`). Raises OSError if
-    it can't be written; the review is then marked `unsaved` and stays in
-    use from memory."""
-    review = startle_review(data)
-    update = {REVIEW_KEY: review.to_saved()}
-    try:
-        prepared = info_file.update_own(data.path, update)
-        if prepared is None:
-            if not video_path:
-                raise OSError("there is no info file to keep the review in")
-            prepared = info_file.prepare(video_path, update, label)
-        path, text = prepared
-        with replacing(path) as tmp:
-            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-                f.write(text)
-    except OSError:
-        review.unsaved = True
-        raise
-    review.unsaved = False
-
-
-def counted(trials: pd.DataFrame) -> pd.DataFrame:
-    """The trials that count toward the measures: all but those the
-    experimenter marked as not a real startle."""
-    if trials is None or REAL_COLUMN not in trials.columns:
-        return trials
-    return trials[trials[REAL_COLUMN] != NO]
-
-
-def to_review(trials: pd.DataFrame) -> pd.DataFrame:
-    """The trials still to be marked: those with an amplitude (a trial
-    without one isn't used anyway) and no mark yet."""
-    if trials is None or trials.empty or REAL_COLUMN not in trials.columns:
-        return trials.iloc[0:0] if trials is not None else pd.DataFrame()
-    return trials[trials["Startle amplitude_pct"].notna() & (trials[REAL_COLUMN] == "")]
-
-
-def review_done(trials: pd.DataFrame, review: StartleReview) -> bool:
-    """True once the experimenter clicked Done and every trial with an
-    amplitude has a mark (a video tracked again with other stimuli isn't
-    done until the new ones are marked)."""
-    return bool(review.done) and len(to_review(trials)) == 0
-
-
 # --- trials and the session ------------------------------------------------
 TRIAL_COLUMNS = ["Trial", "Type", "Pulse_kHz", "Pulse_Kind", "Prepulse_dB", "Pulse_dB",
                  "Interval_ms", "Stimulus_Frame",
                  "Stimulus_s", "Pixel.change_px", "motion.index.before_pct", "motion.index.after_pct",
-                 "FrameNo", "Time.startle_s", "ReactionTime_ms", "Startle amplitude_pct",
-                 REAL_COLUMN, "Note"]
+                 "FrameNo", "Time.startle_s", "ReactionTime_ms", "Startle amplitude_pct", "Note"]
 
 
 def _window_peak(df: pd.DataFrame, inside: np.ndarray):
@@ -471,10 +378,8 @@ def trial_table(data: TrackingData, startle_ms: float = 200.0,
     columns (Prepulse_dB, Interval_ms) are there only when the session has
     prepulse trials, so a plain startle table has no empty PPI headings. Any window
     that doesn't lie fully inside the recording, or has no usable frames,
-    leaves the amplitude blank with a note saying why. `Startle_Real` is the
-    experimenter's mark from the review: yes, no, or blank until marked."""
+    leaves the amplitude blank with a note saying why."""
     df = data.df
-    review = startle_review(data)
     frames = df["Frame"].to_numpy(dtype=int)
     times = df["Time_s"].to_numpy(dtype=float)
     bad = df["Frame_Unreadable"].to_numpy(dtype=bool)
@@ -489,7 +394,7 @@ def trial_table(data: TrackingData, startle_ms: float = 200.0,
                "Pulse_kHz": round(hz / 1000, 3) if hz else None,
                "Pulse_Kind": s.get("pulse_stimulus"), "Prepulse_dB": s.get("prepulse_db"),
                "Pulse_dB": s.get("pulse_db"), "Interval_ms": s.get("interval_ms"),
-               "Stimulus_Frame": s["frame"], REAL_COLUMN: review.text(s["frame"]), "Note": ""}
+               "Stimulus_Frame": s["frame"], "Note": ""}
         at = np.flatnonzero(frames == s["frame"])
         if at.size == 0:
             row["Note"] = "stimulus is outside the analyzed frames"
@@ -567,7 +472,6 @@ def level_curves(trials: pd.DataFrame) -> dict[str, list[dict]]:
     Only trials with an amplitude and a level are used."""
     if trials is None or trials.empty or "Pulse_dB" not in trials.columns:
         return {}
-    trials = counted(trials)        # (not those marked as not a real startle)
     used = trials[(trials["Type"] == PULSE)].dropna(subset=["Startle amplitude_pct", "Pulse_dB"])
     if used.empty:
         return {}
@@ -593,9 +497,7 @@ def baseline_criterion(trials: pd.DataFrame, sd: float = 2.0) -> float | None:
     (user, 2026-11-11). None with fewer than two baseline windows."""
     if trials is None or trials.empty or "motion.index.before_pct" not in trials.columns:
         return None
-    # (a trial marked as not a real startle had the animal moving before the
-    # sound, so its baseline window isn't a quiet one either)
-    before = counted(trials)["motion.index.before_pct"].dropna().astype(float).to_numpy()
+    before = trials["motion.index.before_pct"].dropna().astype(float).to_numpy()
     if len(before) < 2:
         return None
     return float(before.mean() + float(sd) * before.std(ddof=1))
@@ -685,14 +587,9 @@ def session_measures(trials: pd.DataFrame, block_trials: int = 10,
     `block_trials`, in order (a shorter last block is left out), and it is
     100 x (1 - last block's mean / first block's)."""
     out: dict = {"ASR_Trials": len(trials)}
-    # Trials the experimenter marked as not a real startle (the animal was
-    # already moving) count for nothing below, like trials with no amplitude.
-    scored = counted(trials).dropna(subset=["Startle amplitude_pct"])
+    scored = trials.dropna(subset=["Startle amplitude_pct"])
     out["ASR_TrialsUsed"] = len(scored)
     out["ASR_TrialsNotUsed"] = len(trials) - len(scored)
-    if REAL_COLUMN in trials.columns:
-        out["ASR_TrialsMarkedNotReal"] = int((trials[REAL_COLUMN] == NO).sum())
-        out["ASR_TrialsNotReviewed"] = len(to_review(trials))
     kinds = [k for k in TYPE_ORDER if (scored["Type"] == k).any()] + sorted(
         set(scored["Type"].astype(str)) - set(TYPE_ORDER))
     for kind in kinds:
@@ -777,17 +674,11 @@ def asr_summary(data: TrackingData, startle_ms: float = 200.0, baseline_ms: floa
     the session is a habituation session (its info file's variant is
     Startle Habituation), so short-term habituation is reported."""
     trials = trial_table(data, startle_ms, baseline_ms)
-    review = startle_review(data)
     times = data.df["Time_s"].to_numpy(dtype=float)
     length = float(times[-1] - times[0]) if len(times) > 1 else 0.0
     values = data.df["MotionIndex_pct"].to_numpy(dtype=float)
     row: dict = {"File": data.name}
-    measures = session_measures(trials, block_trials, threshold_sd, habituation)
-    # Whether the experimenter has finished looking at the startles (Done in
-    # the playback window, with every trial marked): beside the trial counts.
-    done = {"ASR_ReviewDone": YES if review_done(trials, review) else NO}
-    at = list(measures).index("ASR_TrialsNotReviewed") + 1
-    row.update({**dict(list(measures.items())[:at]), **done, **dict(list(measures.items())[at:])})
+    row.update(session_measures(trials, block_trials, threshold_sd, habituation))
     row.update({
         "Frames": data.n_frames, "Duration_s": round(length, 2),
         "FPS": round((len(times) - 1) / length, 3) if length else float("nan"),

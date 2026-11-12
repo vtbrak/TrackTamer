@@ -28,8 +28,10 @@ ASR_TEST = "Acoustic Startle Response"
 # Startle has no crop and no exclusions (user, 2026-11-12): the motion index
 # is the changed pixels divided by the pixels analyzed, so taking part of the
 # picture out changes the number, differently wherever it's taken from. It is
-# always worked out on the whole frame.
-ASR_STEPS = ("trim", "threshold", "stimuli")
+# always worked out on the whole frame. Nor a Stimuli step (user,
+# 2026-11-12): every startle video comes from Boom Box, whose info file
+# lists the stimuli, so there was nothing to do on it.
+ASR_STEPS = ("trim", "threshold")
 
 
 def steps_for(test: str) -> tuple:

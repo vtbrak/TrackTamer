@@ -65,10 +65,10 @@ e = app.files[0]; v = e.video
 check("a startle video defaults to its whole length", v.end_frame == 101)
 app.open_setup(); app.update()
 win = app._setup_win
-check("three setup steps: no crop and no exclusions for startle (the motion index is always "
-      "of the whole picture)",
-      list(win.step_buttons) == ["trim", "threshold", "stimuli"]
-      and [win._title(k) for k in win.step_buttons] == ["1  Trim", "2  Threshold", "3  Stimuli"]
+check("two setup steps: no crop and no exclusions for startle (the motion index is always "
+      "of the whole picture), and no Stimuli step (they come from the recording's info file)",
+      list(win.step_buttons) == ["trim", "threshold"]
+      and [win._title(k) for k in win.step_buttons] == ["1  Trim", "2  Threshold"]
       and "no crop" in win.instructions.cget("text")
       and not win.canvas.bind("<B1-Motion>"))
 v.crop = (0.0, 0.0, 372.0, 240.0)           # (as left by another test type)
@@ -82,17 +82,25 @@ check("changing the threshold updates the preview, and the slider follows",
       win.threshold_text.cget("text") != text15 and round(float(win.threshold_scale.get())) == 60
       and app.config_data["asr_threshold"] == 60)
 app.asr_threshold_var.set("15"); app.update()
+check("the Threshold step says where the stimuli come from: none here (no info file)",
+      "No stimuli were found" in win.stimuli_note.cget("text"))
 log.clear(); win.step = "threshold"; v.steps_done.update({"trim"})
 win._step_by(1); app.update()
-check("Next reaches the stimuli step, with a box to type frames (no info file)",
-      win.step == "stimuli" and win.stimuli_text is not None)
-win.stimuli_text.insert("1.0", "50, abc"); log.clear(); win._step_by(1); app.update()
-check("a bad frame is refused", "Invalid stimulus frames" in log and "stimuli" not in v.steps_done)
-win.stimuli_text.delete("1.0", "end"); win.stimuli_text.insert("1.0", "50"); win._step_by(1); app.update()
-check("setup is complete", v.stimulus_frames == [50] and v.ready_for("Acoustic Startle Response")
-      and not win.winfo_exists() or v.ready_for("Acoustic Startle Response"))
+check("Threshold is the last step: setup is complete after it",
+      v.ready_for("Acoustic Startle Response") and "threshold" in v.steps_done)
 app._set_selection([0], focus=0); app.update()
-app.track(); app.update()
+log.clear(); yesno.append(False); app.track(); app.update()
+check("Track names a video with no stimuli and asks before working out a motion index with "
+      "no trials; Cancel tracks nothing",
+      "Some videos have no stimuli" in log and app._runner is None and e.data is None)
+# Stimulus frames typed in for a video in an earlier version (kept in its saved setup) still count.
+v.stimulus_frames = [50]
+from core.asr import stimulus_note
+check("frames typed in an earlier version are still used, and said so",
+      stimulus_note(CLIP, v.stimulus_frames)[0] == 1
+      and "typed in" in stimulus_note(CLIP, v.stimulus_frames)[1])
+log.clear(); app.track(); app.update()
+check("a video with stimuli is tracked without the question", "Some videos have no stimuli" not in log)
 t0 = time.time()
 while app._runner is not None and time.time() - t0 < 60:
     app.update(); time.sleep(0.02)
@@ -139,32 +147,6 @@ check("Go to peak shows the peak frame, marked, in the startle window",
       pw.row == 51 and "STARTLE PEAK" in words() and "startle window" in pw.info.cget("text"))
 pw.step(-2); app.update()
 check("the info line says when a frame is in the baseline window", "baseline window" in pw.info.cget("text"))
-# Marking a startle real or not, on a file that's analyzed: the results follow at once.
-e0 = app.files[0]
-check("the playback window asks whether the trial is a real startle; nothing is marked yet",
-      pw.yes_btn.winfo_exists() and pw.no_btn.winfo_exists() and pw.done_btn.cget("text") == "Done reviewing"
-      and "not marked yet" in pw.mark_text.cget("text") and "0 of 1 marked" in pw.mark_text.cget("text")
-      and e0.summary["ASR_TrialsNotReviewed"] == 1 and e0.summary["ASR_ReviewDone"] == "no")
-pw.mark_trial(False); app.update(); pw = rv.window
-check("No leaves the trial out of the results at once, and shows in the Trials table and the list",
-      e0.summary["ASR_TrialsMarkedNotReal"] == 1 and e0.summary["ASR_TrialsUsed"] == 0
-      and "ASR_Mean_pulse_pct" not in e0.summary and list(e0.bins["Startle_Real"]) == ["no"]
-      and rv.tree.item("0", "values")[10] == "no" and "marked NO" in pw.mark_text.cget("text")
-      and pw.trial == 0)
-pw.event_generate("<KeyPress-y>"); app.update(); pw = rv.window
-if e0.summary["ASR_TrialsUsed"] != 1:       # (a hidden test window may not take key events)
-    pw.mark_trial(True); app.update()
-check("Yes (or the Y key) puts it back",
-      e0.summary["ASR_TrialsUsed"] == 1 and e0.summary["ASR_TrialsMarkedNotReal"] == 0
-      and "ASR_Mean_pulse_pct" in e0.summary and rv.tree.item("0", "values")[10] == "yes")
-pw.show_guide(); app.update()
-guide_text = pw._guide.text.get("1.0", "end")
-check("How to review opens the written guide: what to look for, that no response is a Yes, "
-      "what No is for, and what Done means",
-      pw._guide.winfo_exists() and "No response is a real result" in guide_text
-      and "rearing" in guide_text and "Done reviewing" in guide_text
-      and "left out of every result" in guide_text)
-pw._guide.destroy(); app.update()
 other = shutil.copy(CLIP, os.path.join(tmp, "many.mp4"))
 many, _ = run_asr_job(AsrJob(other, Prep(), 0, 101, None, 15.0, 30.0, 0, [30, 50, 70, 500]))
 rv.load(many, other, {}, 1.0, title="many", trials=trial_table(many)); app.update()
@@ -183,53 +165,9 @@ check("Next stops at the last trial in the video and says so",
 rv.tree.selection_set("3"); app.update()
 check("a stimulus outside the video doesn't move the frame, and says why",
       pw.row == 70 and "outside" in pw.trial_text.cget("text"))
-# Reviewing a whole session: every mark is saved as it's made, Done needs them all.
-import json as _json
-from core.asr import asr_summary, load_motion, startle_review
-def saved_review():
-    for name in os.listdir(tmp):
-        if name.endswith("_info.json"):
-            for cam in _json.load(open(os.path.join(tmp, name)))["cameras"]:
-                if cam.get("video") == "many.mp4":
-                    return cam["track_tamer"].get("startle_review")
-rv.tree.selection_set("0"); app.update(); pw = rv.window
-check("the list says which trials are to review; one with no amplitude needs no mark",
-      [rv.tree.item(str(k), "values")[10] for k in range(4)] == ["to review"] * 3 + [""]
-      and "0 of 3 marked" in pw.mark_text.cget("text") and "Review not done yet" in rv.summary.cget("text"))
-pw.mark_trial(True); app.update()
-check("a mark is written to the video's info file as soon as it's made",
-      saved_review() is not None and saved_review()["trials"] == [{"frame": 30, "real": True}]
-      and saved_review()["done"] is False and "1 of 3 marked" in pw.mark_text.cget("text"))
-log.clear(); pw.finish_review(); app.update()
-check("Done with trials not marked warns, isn't done, and goes to the first of them",
-      "Not every startle is marked" in log and not startle_review(many).done
-      and saved_review()["done"] is False and pw.trial == 1 and pw.row == 50
-      and pw.done_btn.cget("text") == "Done reviewing")
-pw.mark_trial(False); app.update()
-pw.go_trial(1); app.update(); pw.mark_trial(True); app.update()
-row = asr_summary(many)[0]
-check("all marked: the one marked not real is left out, and the review still isn't done "
-      "until Done is clicked",
-      row["ASR_TrialsMarkedNotReal"] == 1 and row["ASR_TrialsNotReviewed"] == 0
-      and row["ASR_N_pulse"] == 2 and row["ASR_ReviewDone"] == "no"
-      and "click Done reviewing" in rv.summary.cget("text"))
-rv.tree.selection_set("3"); app.update()
-pw.mark_trial(True); app.update()
-check("a trial with no amplitude takes no mark", 500 not in startle_review(many).marks
-      and "no mark needed" in pw.mark_text.cget("text"))
-log.clear(); pw.finish_review(); app.update()
-check("Done with every trial marked records the review as done",
-      "Not every startle is marked" not in log and saved_review()["done"] is True
-      and asr_summary(many)[0]["ASR_ReviewDone"] == "yes"
-      and pw.done_btn.cget("text") == "Review done ✓" and "Review done." in rv.summary.cget("text"))
-pw.close(); app.update()            # (as if closed by accident)
-again = load_motion(many.path)
-check("after the window is closed and the file loaded again, the marks and Done are still there",
-      startle_review(again).marks == {30: True, 50: False, 70: True} and startle_review(again).done
-      and list(trial_table(again)["Startle_Real"]) == ["yes", "no", "yes", ""])
 # A file from 0.9.4 or earlier that was tracked with a crop and exclusions.
 from types import SimpleNamespace
-from core.asr import part_of_frame
+from core.asr import load_motion, part_of_frame
 older = shutil.copy(CLIP, os.path.join(tmp, "older.mp4"))
 half = np.zeros((240, 372), bool); half[:120] = True
 cropped, _ = run_asr_job(AsrJob(older, Prep(crop=(0, 0, 372, 240)), 0, 101, half, 15.0, 30.0, 2, [50]))

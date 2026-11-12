@@ -126,11 +126,10 @@ entry (per-camera app fields go there), since its setup is per video:
 |---|---|
 | `version`, `saved` | the Track Tamer version and when it last tracked the video |
 | `test` | the test the video was tracked as |
-| `setup` | the session (start frame, end frame, length), crop, exclusion shapes, regions, scale points and length, objects and their types, typed stimulus frames; shapes in full-size video pixels, with the frame size they were drawn on. A startle setup has the session, typed stimulus frames and trial day only: startle is measured on the whole frame, with no crop or exclusions |
+| `setup` | the session (start frame, end frame, length), crop, exclusion shapes, regions, scale points and length, objects and their types, stimulus frames typed in Track Tamer 0.9.4 or earlier (there is no step to type them now); shapes in full-size video pixels, with the frame size they were drawn on. A startle setup has the session and trial day only (and stimulus frames typed in 0.9.4 or earlier): startle is measured on the whole frame, with no crop or exclusions |
 | `tracking` | what the tracking file would otherwise repeat on every row: the video's name, every tracking setting, the scale, and the region outlines as tracked. For startle: the threshold, start frame, frame rate, pixels analyzed (and a crop or exclusion count only in files from Track Tamer 0.9.4 or earlier), where the stimuli came from, and the stimulus frames if they were typed in (stimuli from the recording app are read from `stimuli`, not copied) |
 | `analysis` | the analysis settings of the last export |
 | `files` | the names of the files Track Tamer made beside the video (tracking file, reference image, workbook, plots) |
-| `startle_review` | startle only: the experimenter's review of each trial. `done` (true once they clicked Done with every trial marked) and `trials`, a list of `{"frame": <the stimulus's video frame>, "real": true/false}` (false = the animal was already moving, so the trial is left out of the results) |
 
 With it, a video added to Track Tamer again comes back with its setup as it
 was and its tracking file attached, so plots can be made or the video

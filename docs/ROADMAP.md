@@ -1420,8 +1420,8 @@ Trials / Motion Trace / Aligned Trials; tests `test_asr.py`, `test_asr_gui.py`).
     calculated from a division involving total pixels so cropping will
     change that calculation unevenly depending on where you crop it. also
     take out exclusion drawing for startle for the same reason"). The
-    startle setup has three steps: Trim, Threshold, Stimuli
-    (`video_setup.ASR_STEPS`); a crop or exclusions a setup holds from
+    startle setup then had three steps: Trim, Threshold, Stimuli
+    (`video_setup.ASR_STEPS`; two since the Stimuli step went, below); a crop or exclusions a setup holds from
     another test are not used, saved or recorded (`asr.make_asr_job`), and
     the Setup sheet has no Crop or Exclusions section. Files tracked with
     them in 0.9.4 or earlier still load, and Analyze names them
@@ -1429,40 +1429,32 @@ Trials / Motion Trace / Aligned Trials; tests `test_asr.py`, `test_asr_gui.py`).
     of the part kept, so they need tracking again before they're compared.
     Location tests keep their crop and exclusions (they find a position;
     nothing is divided by the pixel count).
-  - **Reviewing startles: real or not** (user, 2026-11-12: "Need a place to
-    mark if a startle is real or not in the playback review video screen
-    make a yes or no button ... what we are looking to exclude is if a mouse
-    is rearing or already performing some other movement action during the
-    stimulus that would be interpreted by the video as a 'startle'"; "No
-    response is OK").
-    - The playback window's Startle trials box asks "Real startle?" with
-      **Yes** and **No** (keys Y and N). Each mark is written to the
-      video's info file as it's made (`track_tamer.startle_review`: `done`,
-      and `trials` as `{frame, real}` by the stimulus's video frame, so
-      marks stay on the same stimuli when a video is tracked again), so an
-      accidental close loses nothing. A save that fails keeps the marks in
-      memory, in use, and says so once (`asr.StartleReview`,
-      `asr.save_review`).
-    - A trial marked No keeps its row and numbers in the Trials table
-      (`Startle_Real` yes / no / blank) and **counts for nothing**: the
-      means, startle by level and its baseline criterion, PPI and
-      short-term habituation (`asr.counted`), exactly as a trial with no
-      amplitude already did (so habituation's own rule is unchanged). It is
-      drawn dotted in the Aligned Trials plot. A trial with no response is
-      a Yes. Trials with no amplitude need no mark.
-    - **Done reviewing** means the experimenter has looked at every startle
-      and judged the ones marked Yes not to be due to other movement before
-      or during the stimulus. With trials unmarked it warns, names them,
-      goes to the first, and isn't done.
-    - The Data Summary has `ASR_TrialsMarkedNotReal`,
-      `ASR_TrialsNotReviewed` and `ASR_ReviewDone` beside the trial counts;
-      the Review list has a "Real startle" column and says how far the
-      review has got.
-    - The written guide (what to look at, what Yes and No mean) opens from
-      **How to review…** in the playback window and is in the README
-      (`review_panel.STARTLE_GUIDE`; keep the two in step).
-    - Not built (not asked for): a warning at Export when a session's
-      review isn't done.
+  - **No Stimuli step** (user, 2026-11-12: "in the video set up panel there
+    is a step for stimulus which doesn't do anything"; then "You can remove
+    it"). With a Boom Box info file the step only reported how many stimuli
+    it had found; the box for typing frames was for videos with no info
+    file, and every startle video now comes from Boom Box. The startle
+    setup is **Trim, Threshold**. The Threshold step says where the stimuli
+    come from (`asr.stimulus_note`), in red when there are none; Track
+    names videos with no stimuli and asks before working out a motion index
+    with no trials. Frames typed in 0.9.4 or earlier, kept in a saved
+    setup, are still used. Nothing in Track Tamer types stimuli now.
+  - **Marking each startle real or not: built, then taken out the same day**
+    (2026-11-12). The user asked for Yes / No buttons in the playback window
+    to mark whether each startle was real (not a mouse already rearing or
+    moving when the sound came), saved at each click, with a Done button and
+    a written guide; trials marked No were left out of every result. It
+    went out in commit 93e7ed9. After trying it on the first data from an
+    animal the user took it back: "I think that the manual review of rating
+    a startle yes or no isn't going to work. The data is too subjective.
+    Revert that change." All of it is gone: the buttons, the `Startle_Real`
+    column, the `ASR_TrialsMarkedNotReal` / `ASR_TrialsNotReviewed` /
+    `ASR_ReviewDone` columns, and the guide. An info file that was reviewed
+    in that build keeps a `startle_review` entry in its `track_tamer`
+    object; nothing reads it. **Don't bring a per-trial human judgment back
+    without the user asking**; if movement before the stimulus needs
+    handling, it should be by a rule the data decides (for example a limit
+    on the baseline window's motion index), which the user hasn't asked for.
   - **A startle setup holds only what startle uses** (user, 2026-11-12): the
     session and typed stimulus frames (the crop and exclusions went the
     same day, above). No regions, scale,
@@ -2094,6 +2086,32 @@ Done:
 9. ⏸ ~~Shared immobility detection~~: deferred to future items (§11).
 10. ✅ **Export (§9).**
 11. ✅ **Test measures per time bin (§5b).**
+
+**To look at later (user, 2026-11-12: "Mark that error for us to look at
+later").** The workflow test (`tests/regress_gui.py`) failed two playback
+checks once, on `head-tail` in the conda environment, right after `main`'s
+startle review commit (93e7ed9) was merged in: "plays to the end and stops"
+and "frame step back" (the second follows from the first: it steps back from
+wherever playback stopped). The same merge passed in `.venv`, and the test
+passed three times in a row when run again in conda. The check plays the
+practice clip at 8x and gives it 20 seconds to reach the last frame, so a
+busy computer or a window that lost its turn could do it; nothing in that
+commit touches playback outside startle. **It happened again the same day
+on `main` in `.venv`** (the full run after the startle review was taken
+out), and again passed three times in a row when rerun, so it isn't
+`head-tail`'s or one environment's. It isn't the time limit being a little
+short either: a normal run finishes that playback in 0.5 s of the 20 s
+allowed. So when it fails, playback either stood still for 20 s or was
+stopped partway (the window's space bar pauses it; a key press or click
+landing on the test's window while the user is at the computer would do
+that, and so might the window being held back while it's hidden). The check
+now prints how long playback took and which frame it was on, so the next
+failure says which. The user, the same day: "I am often typing while you
+are running screens so I think it is my input." That is the likely cause
+(not yet confirmed by a failure with the new printout). It also means the
+test windows sometimes take the user's keystrokes. Offered, not asked for
+yet: make that check ignore the keyboard; and look for a way to keep test
+windows from taking the keyboard at all.
 
 **Priority order for what's next (user, 2026-11-09).** Nothing here starts
 until the user asks; when they ask what's next, work from the top:
