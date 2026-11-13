@@ -2408,6 +2408,15 @@ vanishes.
   there: identical copies dropped, different ones kept as `config_2.json`),
   and INSTALL.md's update steps say to copy that folder. It had none of the
   second (no saved paths into its own folder). Tests in `test_layout.py`.
+- ✅ **Version 0.9.5 (2026-11-12, tag `v0.9.5`; no GitHub release yet):**
+  the user asked for the number to be bumped for the day's work after
+  0.9.4 ("bump the number for todays work"): the Data Summary, units and
+  grouped columns; trial day and session in every test; startle on the
+  whole frame with a two-step setup (no crop, exclusions or Stimuli step);
+  the short-term habituation score; the metadata standard made final.
+  Files from 0.9.4 or earlier that were tracked with a startle crop or
+  exclusions are named at Analyze. A release for testers would be made
+  from the tag when the user asks.
 - ✅ **Released 0.9.4 (2026-11-12, pre-release, tag `v0.9.4`):** the settings
   fix above, on its own (user: "put out the settings fix as 0.9.4").
 - ✅ **Jumps to a video frame match in-order reading (2026-11-10, not

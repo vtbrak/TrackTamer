@@ -210,8 +210,8 @@ first PC test when they're ready). **ROADMAP "Build order" is
 the source of truth.**
 **What to build next:** see "Priority order for what's next" in ROADMAP
 "Build order" (user, 2026-11-09). Nothing on it starts until the user asks.
-**Version 0.9.4** (2026-11-12, the settings fix; 0.9.3 was earlier the same day, 0.9.2 was 2026-11-09, 0.9 was 2026-11-05, the testing release; user chose 0.x): `core/version.py`
-holds `VERSION` (About window, exported Settings sheet); git tags `v0.9`, `v0.9.1`, `v0.9.2`, `v0.9.3`, `v0.9.4`
+**Version 0.9.5** (2026-11-12, that day's later work: the startle check changes, trial day and session in every test, whole-frame startle with a two-step setup, the short-term habituation score, the final metadata standard; tagged `v0.9.5`, no GitHub release made for it; 0.9.4 was the settings fix and 0.9.3 earlier the same day, 0.9.2 was 2026-11-09, 0.9 was 2026-11-05, the testing release; user chose 0.x): `core/version.py`
+holds `VERSION` (About window, exported Settings sheet); git tags `v0.9`, `v0.9.1`, `v0.9.2`, `v0.9.3`, `v0.9.4`, `v0.9.5`
 (GitHub pre-release). Fixes from testers go out as 0.9.1, 0.9.2, …; 1.0 comes
 after testing. Bump `VERSION` and tag for each release.
 **Every GitHub release is tagged** (user, 2026-11-12: "make sure that all
