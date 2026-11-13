@@ -129,19 +129,43 @@ check("% PPI from startle amplitudes, overall and per level and interval",
       m["ASR_PPI_Overall_pct"] == round(100 * (1 - round(10 / 3, 4) / 7), 1)
       and m["ASR_PPI_74dB_100ms_pct"] == round(100 * (1 - 4 / 7), 1)
       and m["ASR_PPI_82dB_100ms_pct"] == round(100 * (1 - 2 / 7), 1))
-check("short-term habituation from pulse-alone blocks: first vs last",
-      m["ASR_ShortTermHabituation_Block1_Mean_pct"] == 9
-      and m["ASR_ShortTermHabituation_Block2_Mean_pct"] == 5
-      and m["ASR_ShortTermHabituation_pct"] == round(100 * (1 - 5 / 9), 1)
-      and list(m)[-3:] == ["ASR_ShortTermHabituation_Block1_Mean_pct",
-                           "ASR_ShortTermHabituation_Block2_Mean_pct",
-                           "ASR_ShortTermHabituation_pct"])
+# Short-term habituation (user's formula, 2026-11-12): (mean of the first N
+# responses - mean of the last M) / mean of all the session's responses.
+m = session_measures(trials, block_trials=2, habituation=True, sth_first=1, sth_last=2)
+check("the short-term habituation score is (mean first - mean last) / mean of all responses, "
+      "from the pulse-alone amplitudes in order (10, 8, 6, 4 here: first 1, last 2)",
+      m["ASR_STH_First1_Mean_pct"] == 10 and m["ASR_STH_Last2_Mean_pct"] == 5
+      and m["ASR_STH_Score"] == round((10 - 5) / 7, 4) and m["ASR_Mean_pulse_pct"] == 7)
+check("the habituation curve is the mean of each run of responses in order, named by which "
+      "responses, after the score",
+      m["ASR_Habituation_Responses1to2_Mean_pct"] == 9
+      and m["ASR_Habituation_Responses3to4_Mean_pct"] == 5
+      and list(m)[-5:] == ["ASR_STH_First1_Mean_pct", "ASR_STH_Last2_Mean_pct", "ASR_STH_Score",
+                           "ASR_Habituation_Responses1to2_Mean_pct",
+                           "ASR_Habituation_Responses3to4_Mean_pct"])
+hundred = pd.DataFrame({"Type": ["pulse"] * 100, "Prepulse_dB": [None] * 100,
+                        "Interval_ms": [None] * 100,
+                        "Startle amplitude_pct": [20.0] * 10 + [12.0] * 50 + [5.0] * 40})
+h = session_measures(hundred, habituation=True)
+check("with the starting settings it is the first 10 and the last 40 of the session's responses "
+      "(a 100-tone habituation session)",
+      h["ASR_STH_First10_Mean_pct"] == 20 and h["ASR_STH_Last40_Mean_pct"] == 5
+      and h["ASR_Mean_pulse_pct"] == 10 and h["ASR_STH_Score"] == 1.5
+      and h["ASR_Habituation_Responses91to100_Mean_pct"] == 5)
+rising = session_measures(hundred.iloc[::-1], habituation=True)
+check("a startle that grows through the session gives a score below 0 (first 10 at 5, last "
+      "40 averaging 14, all averaging 10)",
+      rising["ASR_STH_First10_Mean_pct"] == 5 and rising["ASR_STH_Last40_Mean_pct"] == 14
+      and rising["ASR_STH_Score"] == -0.9)
 check("it's only reported for a habituation session",
-      not any("Habituation" in k or "Block" in k for k in session_measures(trials, block_trials=2)))
-short = session_measures(trials, block_trials=3, habituation=True)
-check("a shorter last block is left out; one block gives no habituation",
-      "ASR_ShortTermHabituation_Block2_Mean_pct" not in short
-      and "ASR_ShortTermHabituation_pct" not in short)
+      not any("Habituation" in k or "STH" in k for k in session_measures(trials, block_trials=2)))
+few = session_measures(trials, block_trials=3, habituation=True)     # 4 responses, 10 + 40 needed
+check("too few responses for the first and last groups: the score and its two means are there, "
+      "blank; a shorter run at the end of the curve is left out",
+      all(math.isnan(few[k]) for k in ("ASR_STH_First10_Mean_pct", "ASR_STH_Last40_Mean_pct",
+                                       "ASR_STH_Score"))
+      and few["ASR_Habituation_Responses1to3_Mean_pct"] == 8
+      and not any("Responses4" in k for k in few))
 freq = pd.DataFrame({"Type": ["pulse"] * 3, "Pulse_kHz": [4.0, 4.0, 12.0], "Pulse_Kind": ["tone"] * 3,
                      "Prepulse_dB": [None] * 3, "Interval_ms": [None] * 3,
                      "Startle amplitude_pct": [2.0, 4.0, 9.0]})
@@ -311,7 +335,7 @@ try:
     s, tt = asr_summary(back)
     check("summary row and trials from the file", s["ASR_Trials"] == 1 and len(tt) == 1
           and s["IntensityThreshold_graylevels"] == 15 and tt["Pulse_dB"][0] == 120
-          and "ShortTermHabituationBlock_trials" not in s)
+          and not {"STH_First_trials", "HabituationCurveBlock_trials"} & set(s))
     other = os.path.join(tmp, "plain.mp4"); shutil.copy(ASR_CLIP, other)
     data, _ = run_asr_job(AsrJob(other, Prep(), 0, 101, None, 15.0, 30.0, 0, [50]))
     from core.asr import file_stimuli

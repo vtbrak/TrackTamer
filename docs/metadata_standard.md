@@ -1,12 +1,14 @@
 # Track Tamer video metadata standard
 
-**Schema 1 (draft, 2026-11-06).** The trial information that any app
+**Schema 1, final (2026-11-12; a draft from 2026-11-06 until the user
+finalized it).** The trial information that any app
 recording videos for Track Tamer saves beside its videos, so Track Tamer can
 fill it in automatically (ROADMAP §16). **Track Tamer owns this standard**:
 apps that generate video follow it, and changes are made here first, then in
-the apps. It stays a draft until the user says otherwise; while it's a draft,
-changes don't raise `schema_version`. Track Tamer reads it, and adds its own
-part to the same file (built 2026-11-11; section 1).
+the apps. Now that it is final, the rules in section 7 apply: an optional
+field can be added without a new version; renaming or removing a field, or
+changing what one means, makes it schema 2. Track Tamer reads it, and adds
+its own part to the same file (built 2026-11-11; section 1).
 
 Apps covered so far: **Creature Capture**, **Boom Box** and **Pellet
 Paparazzi** (see "Apps" at the end). Apps whose videos Track Tamer doesn't
@@ -334,12 +336,20 @@ confined to in a conditioning session).
 ## 7. Changing the standard
 
 - Track Tamer owns this file. Changes are agreed here, then made in the apps.
-- While the standard is a draft, changes don't raise `schema_version`.
-- After that: **adding** an optional field doesn't change `schema_version`;
-  **renaming, removing, or changing the meaning** of a field raises it by 1,
-  and Track Tamer keeps reading every earlier version.
+- **Schema 1 is final (user, 2026-11-12).** While it was a draft
+  (2026-11-06 to 2026-11-12), changes didn't raise `schema_version`.
+- From now on: **adding** an optional field, or a name to an assay's list of
+  variants or phases, or a new assay, doesn't change `schema_version`;
+  **renaming, removing, or changing the meaning** of a field (or of a listed
+  name) raises it by 1, and Track Tamer keeps reading every earlier version.
+- A field an app doesn't use stays in the standard, unwritten (for example
+  `room`, which no lab app needs today): leaving a field out of a file is
+  always allowed, so nothing has to be removed for it.
 
 ### Changes
+- **Schema 1, final (2026-11-12):** the user finalized the standard as it
+  stood that day. Nothing changed in the fields; the entries below are how
+  the draft got there.
 - **Schema 1 (draft, 2026-11-06):** first version, built from Creature
   Capture's `_info.json`. Revised the same day: assay, variant and phase
   each from a fixed list per assay (`Object Recognition` with variants
@@ -387,7 +397,9 @@ one `_frames.csv` per camera, and a row in its running log
 (`<folder>_log.csv`). Up to 0.2.0 it also wrote a per-trial `_info.csv`;
 it was asked to stop on 2026-11-11 (section 1).
 
-**Matches the revised schema 1 draft** (reported by Creature Capture,
+**Matches schema 1** (its writer was checked against the standard field by
+field on 2026-11-12, the day it was finalized; first reported by Creature
+Capture,
 2026-11-06; committed and pushed, confirmed 2026-11-10). Its `fps_measured`
 is measured from the recording clock: (frames - 1) / (last tick - first
 tick). Its assay list is the section 3 list without `Skilled Reaching`,
@@ -426,7 +438,9 @@ Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
 (github.com/vtbrak/BoomBox), describing Boom Box 1.3.4 (reported by Boom Box,
 2026-11-11; still schema 1, nothing removed or renamed since 1.3.3).
 
-**Matches schema 1 (draft).** What Track Tamer needs to know from the guide:
+**Matches schema 1** (its writer was checked against the standard field by
+field on 2026-11-12, the day it was finalized). What Track Tamer needs to
+know from the guide:
 - **Stimuli.** Since Boom Box 1.2 each `stimuli` entry with a pulse carries
   `pulse_stimulus` (`tone` or `noise`) and `pulse_freq_hz` (left out for
   noise). Sessions recorded with 1.1 don't; Track Tamer then reads them from

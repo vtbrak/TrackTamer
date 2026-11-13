@@ -250,7 +250,11 @@ the user's object trial `Examples/1_2026-06-26_14-03-15.mp4`
 (`tests/test_objects_video.py`).
 **Anaconda install (ROADMAP §14) is built** (2026-11-03, on `main`, merged
 here); tested on Mac, PC test pending.
-**Video metadata standard (ROADMAP §16):** `docs/metadata_standard.md`. Track
+**Video metadata standard (ROADMAP §16):** `docs/metadata_standard.md`,
+**schema 1, final since 2026-11-12** (user). Adding an optional field, assay,
+variant or phase needs no new version; **renaming, removing or changing the
+meaning of a field makes schema 2**, so ask the user first and keep reading
+schema 1. Track
 Tamer is the **master** for metadata: every app that records video for it
 (first: the user's Creature Capture) writes `<date>_<time>_<arena>_info.json`
 per this standard, with `assay` from its fixed list. The user adds other
@@ -302,8 +306,13 @@ whose pulse-alone trials step through levels, the mean per level, a startle
 threshold (lowest level from which it and every louder one beat the
 baseline windows + `asr_threshold_sd` SD) and the largest response, per
 sound when there are several, and the Startle by Level plot
-(`_levels.png`). **Habituation is waiting on more calculations from the
-user; don't change it until they send them.**
+(`_levels.png`). **Short-term habituation score** (user's formula,
+2026-11-12; habituation sessions only): `ASR_STH_Score` = (mean of the
+first 10 responses - mean of the last 40) / mean of all the session's
+responses (`asr.session_measures`; 10 and 40 are settings). The
+`ASR_Habituation_Responses1to10_Mean_pct`... columns are the habituation
+curve (mean per run of responses), not part of the score. **Long-term
+habituation (across days) isn't calculated in the app.**
 **Export rules (user, 2026-11-12; ROADMAP §13 "Changes from that check"):**
 the Summary is called **Data Summary** (tab and sheet); **every column
 heading carries its unit** (`_s`, `_ms`, `_cm`, `_px`, `_pct`, `_dB`, ...;

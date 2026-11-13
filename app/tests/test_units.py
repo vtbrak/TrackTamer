@@ -42,7 +42,7 @@ UNITLESS = re.compile(
     r"FillGaps|OR_Phase|OR_NovelObjects|OR_ZoneDistance|"
     r"Entries_.*|Region_transitions|OutsideEvents|EPM_.*Entries|EPM_.*Ratio|EPM_AnxietyIndex|"
     r"OF_.*Entries|OF_Crossings_.*|OR_Bouts_.*|OR_ZoneVisits_.*|OR_VisitsNotReviewed|"
-    r"OR_DiscriminationIndex|ASR_Trials.*|ASR_N_.*)$")
+    r"OR_DiscriminationIndex|ASR_Trials.*|ASR_N_.*|ASR_STH_Score)$")
 
 def without_unit(columns):
     return [c for c in columns if not (UNIT.search(c) or NAMED.search(c) or UNITLESS.match(c))]
@@ -80,9 +80,10 @@ stimuli = [{"frame": 60, "type": "pulse", "pulse_db": 100, "pulse_freq_hz": 8000
            {"frame": 420, "type": "pulse", "pulse_db": 120, "pulse_freq_hz": 8000, "pulse_stimulus": "tone"}]
 data = TrackingData("x_MotionIndex.csv", df, {"Stimuli": json.dumps(stimuli), "Intensity_Threshold": 15,
                                                "Stimulus_Source": "info file"}, [])
-row, trials = asr_summary(data, block_trials=2, habituation=True)
+row, trials = asr_summary(data, block_trials=2, habituation=True, sth_first=1, sth_last=1)
 check(f"Startle: every Data Summary heading has its unit (missing: {without_unit(row)})",
-      without_unit(row) == [] and "ASR_ShortTermHabituation_pct" in row
+      without_unit(row) == [] and "ASR_STH_Score" in row and "ASR_STH_First1_Mean_pct" in row
+      and "STH_First_trials" in row and "HabituationCurveBlock_trials" in row
       and "ASR_Mean_pulse_100dB_pct" in row and "ASR_PPI_Overall_pct" in row)
 check(f"Startle: every Trials heading has its unit (missing: {without_unit(trials.columns)})",
       without_unit(trials.columns) == [] and "Prepulse_dB" in trials.columns)

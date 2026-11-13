@@ -113,6 +113,10 @@ DEFAULTS: dict = {
     "asr_startle_ms": 200.0,
     "asr_baseline_ms": 200.0,
     "asr_block_trials": 10,
+    # Short-term habituation score: (mean of the first N responses - mean of
+    # the last M) / mean of all (user, 2026-11-12).
+    "asr_sth_first": 10,
+    "asr_sth_last": 40,
     # Startle threshold (sessions that step through sound levels): a level
     # responds when its mean startle-window peak is above the mean of the
     # session's baseline-window peaks plus this many standard deviations.

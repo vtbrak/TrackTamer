@@ -173,8 +173,16 @@ peak** in the playback window. The Data Summary
 gives, for each trial type, its count, mean and median amplitude, then the
 same per pulse frequency; **% PPI** (overall and per prepulse level); and,
 for a habituation session only (the recording's info file says Startle
-Habituation), **% short-term habituation** within the session (first vs last
-block of pulse-alone trials). For a session that steps through sound levels (Boom
+Habituation), the **short-term habituation score** (`ASR_STH_Score`): (mean
+of the first 10 responses − mean of the last 40 responses) ÷ mean of all the
+session's responses, a response being a pulse-alone trial's startle
+amplitude, in order. Above 0 means the startle got smaller through the
+session. The two means are listed beside it; the 10 and 40 are settings;
+it's blank when the session has fewer responses than the two together.
+Beside it is the **habituation curve**: the mean of each run of 10 responses
+in order (`ASR_Habituation_Responses1to10_Mean_pct`, `11to20`, …), for
+plotting; it isn't part of the score. Long-term habituation (across days)
+isn't calculated in the app. For a session that steps through sound levels (Boom
 Box's Hearing Test or I/O) it also gives the mean amplitude at each level,
 the **startle threshold** (the lowest level from which it and every louder
 level respond: a level's mean startle-window peak above the session's

@@ -523,13 +523,30 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         self.asr_baseline_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_baseline_var,
                                             width=6)
         self._setting_row(self.asr_bar, 2, "Baseline window (ms)", self.asr_baseline_entry)
+        self.asr_first_var = tk.StringVar(value=str(c["asr_sth_first"]))
+        self.asr_first_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_first_var, width=6)
+        self._setting_row(self.asr_bar, 3, "Habituation score: first responses",
+                          self.asr_first_entry)
+        self.asr_last_var = tk.StringVar(value=str(c["asr_sth_last"]))
+        self.asr_last_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_last_var, width=6)
+        self._setting_row(self.asr_bar, 4, "Habituation score: last responses",
+                          self.asr_last_entry)
         self.asr_block_var = tk.StringVar(value=str(c["asr_block_trials"]))
         self.asr_block_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_block_var, width=6)
-        self._setting_row(self.asr_bar, 3, "Short-term habituation block (trials)",
+        self._setting_row(self.asr_bar, 5, "Habituation curve: responses per point",
                           self.asr_block_entry)
         self.asr_sd_var = tk.StringVar(value=f"{c['asr_threshold_sd']:g}")
         self.asr_sd_entry = ttk.Entry(self.asr_bar, textvariable=self.asr_sd_var, width=6)
-        self._setting_row(self.asr_bar, 4, "Threshold criterion (SD)", self.asr_sd_entry)
+        self._setting_row(self.asr_bar, 6, "Threshold criterion (SD)", self.asr_sd_entry)
+        sth_tip = ("Short-term habituation score for a habituation session (the recording's "
+                   "info file says Startle Habituation): (mean of the first responses - "
+                   "mean of the last responses) / mean of all the session's responses. "
+                   "Above 0 means the startle got smaller. These two boxes set how many "
+                   "responses count as first and last (10 and 40 to begin with). Blank in "
+                   "the results when the session has fewer responses than the two "
+                   "together. Locks when you click Analyze.")
+        Tooltip(self.asr_first_entry, sth_tip)
+        Tooltip(self.asr_last_entry, sth_tip)
         Tooltip(self.asr_sd_entry, "For sessions that step through sound levels. A level "
                 "gives a response when its mean startle-window peak is above the mean of "
                 "the session's baseline-window peaks plus this many standard deviations. "
@@ -542,10 +559,11 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                 "Locks when you click Analyze.")
         Tooltip(self.asr_baseline_entry, "How long before each stimulus to measure movement "
                 "(before the prepulse, on prepulse+pulse trials). Locks when you click Analyze.")
-        Tooltip(self.asr_block_entry, "Pulse-alone trials per block, for short-term "
-                "habituation within one session (first block vs last). Only reported for a "
-                "habituation session (the recording's info file says Startle Habituation). "
-                "Locks when you click Analyze.")
+        Tooltip(self.asr_block_entry, "For a habituation session, the Data Summary also "
+                "gives the mean of each run of this many responses in order (responses 1 "
+                "to 10, 11 to 20, ...): how the startle changes through the session, for "
+                "plotting. It isn't part of the habituation score. Locks when you click "
+                "Analyze.")
         self.asr_threshold_var.trace_add("write", lambda *_: self._on_asr_threshold())
 
         # Tracking settings, shown when videos are listed. They're changed in
@@ -1101,10 +1119,13 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             self.asr_startle_var, "startle window", 200.0)
         self.config_data["asr_baseline_ms"] = self._ms_setting(
             self.asr_baseline_var, "baseline window", 200.0)
-        try:
-            self.config_data["asr_block_trials"] = max(1, int(float(self.asr_block_var.get())))
-        except ValueError:
-            self.asr_block_var.set(str(self.config_data["asr_block_trials"]))
+        for key, var in (("asr_block_trials", self.asr_block_var),
+                         ("asr_sth_first", self.asr_first_var),
+                         ("asr_sth_last", self.asr_last_var)):
+            try:
+                self.config_data[key] = max(1, int(float(var.get())))
+            except ValueError:
+                var.set(str(self.config_data[key]))
         try:
             sd = float(self.asr_sd_var.get())
             if sd < 0:
@@ -1496,7 +1517,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
         for entry in (self.fps_entry, self.bin_entry, self.entry_entry,
                       self.gap_entry, self.adj_entry, self.smooth_entry,
                       self.fill_check, self.fill_max_entry, self.asr_startle_entry,
-                      self.asr_baseline_entry, self.asr_block_entry, self.asr_sd_entry):
+                      self.asr_baseline_entry, self.asr_block_entry, self.asr_sd_entry,
+                      self.asr_first_entry, self.asr_last_entry):
             entry.configure(state="disabled" if locked else "normal")
         self.asr_threshold_entry.configure(
             state="disabled" if self._tracking_locked() else "normal")
@@ -3208,7 +3230,8 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
             habituation = e.info is not None and e.info.variant == HABITUATION_VARIANT
             summary, e.bins = asr_summary(e.data, float(c["asr_startle_ms"]),
                                           float(c["asr_baseline_ms"]), int(c["asr_block_trials"]),
-                                          float(c["asr_threshold_sd"]), habituation)
+                                          float(c["asr_threshold_sd"]), habituation,
+                                          int(c["asr_sth_first"]), int(c["asr_sth_last"]))
             e.summary = with_animal(order_summary(summary, test), e.info)
             return
         min_entry = self.config_data["min_entry_frames"]
@@ -3359,9 +3382,13 @@ class TrackTamerApp(tk.Tk, _DnDMixin):
                                  row.get("IntensityThreshold_graylevels"),
                              "Startle window (ms)": row.get("StartleWindow_ms"),
                              "Baseline window (ms)": row.get("BaselineWindow_ms"),
-                             **({"Short-term habituation block (trials)":
-                                 row["ShortTermHabituationBlock_trials"]}
-                                if "ShortTermHabituationBlock_trials" in row else {}),
+                             **({"Habituation score: first responses": row["STH_First_trials"],
+                                 "Habituation score: last responses": row["STH_Last_trials"],
+                                 "Habituation score": "(mean of first - mean of last) / "
+                                                      "mean of all responses",
+                                 "Habituation curve: responses per point":
+                                     row["HabituationCurveBlock_trials"]}
+                                if "STH_First_trials" in row else {}),
                              "Threshold criterion (SD)": row.get("ThresholdCriterion_SD"),
                              "Stimuli from": row.get("StimulusSource"),
                              "Pixels analyzed": row.get("AnalyzedPixels_px"),

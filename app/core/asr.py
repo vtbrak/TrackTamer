@@ -570,7 +570,8 @@ TYPE_ORDER = (PULSE, PREPULSE_PULSE, PREPULSE, NO_STIMULUS)
 
 
 def session_measures(trials: pd.DataFrame, block_trials: int = 10,
-                     threshold_sd: float = 2.0, habituation: bool = False) -> dict:
+                     threshold_sd: float = 2.0, habituation: bool = False,
+                     sth_first: int = 10, sth_last: int = 40) -> dict:
     """The Summary's startle columns, every one from the trials' startle
     amplitudes as shown (% of pixels, `_pct`). **Each group's numbers sit
     together** (user, 2026-11-12): for each trial type its count, mean and
@@ -581,11 +582,21 @@ def session_measures(trials: pd.DataFrame, block_trials: int = 10,
     %PPI = 100 x (1 - mean prepulse+pulse amplitude / mean pulse-alone
     amplitude), per prepulse level and interval and overall.
 
-    Short-term habituation (within one session; across days is worked out
-    outside the app, user 2026-11-12) is only reported for a habituation
-    session (`habituation`): the pulse-alone trials are split into blocks of
-    `block_trials`, in order (a shorter last block is left out), and it is
-    100 x (1 - last block's mean / first block's)."""
+    Short-term habituation (STH) is only reported for a habituation session
+    (`habituation`; the info file's variant is Startle Habituation). The
+    score is the user's formula (2026-11-12): (mean of the first
+    `sth_first` responses - mean of the last `sth_last` responses) / mean
+    of all the session's responses, a response being a pulse-alone trial's
+    startle amplitude, in order. Above 0 means the startle got smaller over
+    the session. It is worked out from the three means as shown, and is
+    blank when the session has fewer than `sth_first` + `sth_last`
+    responses (the two groups would overlap). Long-term habituation (across
+    days) isn't calculated in the app for now (user, 2026-11-12).
+
+    The habituation curve beside it is the mean of each run of
+    `block_trials` responses in order (responses 1 to 10, 11 to 20, ...; a
+    shorter run at the end is left out): how the startle changes through
+    the session, for plotting. It isn't part of the score."""
     out: dict = {"ASR_Trials": len(trials)}
     scored = trials.dropna(subset=["Startle amplitude_pct"])
     out["ASR_TrialsUsed"] = len(scored)
@@ -620,13 +631,18 @@ def session_measures(trials: pd.DataFrame, block_trials: int = 10,
             out[f"ASR_PPI_{label or 'unlabeled'}_pct"] = ppi(_mean(part))
     if habituation:
         block_trials = max(1, int(block_trials))
-        blocks = [_mean(pulses[i:i + block_trials])
-                  for i in range(0, len(pulses) - block_trials + 1, block_trials)]
-        for k, value in enumerate(blocks, start=1):
-            out[f"ASR_ShortTermHabituation_Block{k}_Mean_pct"] = value
-        if len(blocks) >= 2:
-            out["ASR_ShortTermHabituation_pct"] = (
-                round(100.0 * (1 - blocks[-1] / blocks[0]), 1) if blocks[0] else float("nan"))
+        first, last = max(1, int(sth_first)), max(1, int(sth_last))
+        enough = len(pulses) >= first + last
+        nan = float("nan")
+        out[f"ASR_STH_First{first}_Mean_pct"] = _mean(pulses[:first]) if enough else nan
+        out[f"ASR_STH_Last{last}_Mean_pct"] = _mean(pulses[-last:]) if enough else nan
+        overall = _mean(pulses)
+        out["ASR_STH_Score"] = (
+            round((out[f"ASR_STH_First{first}_Mean_pct"] - out[f"ASR_STH_Last{last}_Mean_pct"])
+                  / overall, 4) if enough and overall else nan)
+        for i in range(0, len(pulses) - block_trials + 1, block_trials):
+            out[f"ASR_Habituation_Responses{i + 1}to{i + block_trials}_Mean_pct"] = _mean(
+                pulses[i:i + block_trials])
     return out
 
 
@@ -669,7 +685,8 @@ def real_frame_rate(summary: dict) -> float | None:
 
 def asr_summary(data: TrackingData, startle_ms: float = 200.0, baseline_ms: float = 200.0,
                 block_trials: int = 10, threshold_sd: float = 2.0,
-                habituation: bool = False) -> tuple[dict, pd.DataFrame]:
+                habituation: bool = False, sth_first: int = 10,
+                sth_last: int = 40) -> tuple[dict, pd.DataFrame]:
     """(the Data Summary row, the Trials table) for one file. `habituation`:
     the session is a habituation session (its info file's variant is
     Startle Habituation), so short-term habituation is reported."""
@@ -678,7 +695,8 @@ def asr_summary(data: TrackingData, startle_ms: float = 200.0, baseline_ms: floa
     length = float(times[-1] - times[0]) if len(times) > 1 else 0.0
     values = data.df["MotionIndex_pct"].to_numpy(dtype=float)
     row: dict = {"File": data.name}
-    row.update(session_measures(trials, block_trials, threshold_sd, habituation))
+    row.update(session_measures(trials, block_trials, threshold_sd, habituation,
+                                sth_first, sth_last))
     row.update({
         "Frames": data.n_frames, "Duration_s": round(length, 2),
         "FPS": round((len(times) - 1) / length, 3) if length else float("nan"),
@@ -693,7 +711,8 @@ def asr_summary(data: TrackingData, startle_ms: float = 200.0, baseline_ms: floa
         "StartleWindow_ms": startle_ms, "BaselineWindow_ms": baseline_ms,
     })
     if habituation:
-        row["ShortTermHabituationBlock_trials"] = block_trials
+        row["STH_First_trials"], row["STH_Last_trials"] = int(sth_first), int(sth_last)
+        row["HabituationCurveBlock_trials"] = block_trials
     row.update({
         "ThresholdCriterion_SD": threshold_sd,
         "StimulusSource": data.settings.get("Stimulus_Source"),

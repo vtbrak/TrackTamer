@@ -178,6 +178,11 @@ log.clear(); app._warn_part_of_frame([SimpleNamespace(label="older", data=croppe
 check("Analyze warns about such files (their motion index isn't comparable until tracked again)",
       log == ["Some videos were tracked on part of the picture"])
 app.nb.select(app.tab_summary); app.update(); rv.unload()
+check("the habituation score's boxes start at the first 10 and last 40 responses, and lock "
+      "at Analyze with the other startle settings",
+      app.asr_first_var.get() == "10" and app.asr_last_var.get() == "40"
+      and str(app.asr_first_entry.cget("state")) == "disabled"
+      and str(app.asr_last_entry.cget("state")) == "disabled")
 check("startle settings lock at Analyze; threshold locked after Track",
       str(app.asr_startle_entry.cget("state")) == "disabled"
       and str(app.asr_threshold_entry.cget("state")) == "disabled")
@@ -222,7 +227,7 @@ got = dict(zip(sheets["Settings"]["Setting"], sheets["Settings"]["Value"]))
 check("Settings records the threshold and windows",
       float(got["Intensity threshold (grey levels, 0-255)"]) == 15
       and float(got["Startle window (ms)"]) == 200
-      and "Short-term habituation block (trials)" not in got
+      and not any("Habituation" in str(k) for k in got)
       and list(sheets["Settings"]["Setting"]).count("Repeated frames") == 1
       and float(got["Threshold criterion (SD)"]) == 2
       and got["Stimuli from"] == "typed in")

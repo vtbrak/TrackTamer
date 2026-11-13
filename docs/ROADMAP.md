@@ -1429,6 +1429,35 @@ Trials / Motion Trace / Aligned Trials; tests `test_asr.py`, `test_asr_gui.py`).
     of the part kept, so they need tracking again before they're compared.
     Location tests keep their crop and exclusions (they find a position;
     nothing is divided by the pixel count).
+  - **Short-term habituation score** (user, 2026-11-12: "long term
+    habitation will not be calculated in this app at the moment. For short
+    term habituation you can write a score for the habituation varient .STH
+    was calculated as difference between mean first 10 and mean last 40
+    responses divided by the mean of all responses on the respective day").
+    For a habituation session (info file variant `Startle Habituation`):
+    `ASR_STH_Score` = (`ASR_STH_First10_Mean_pct` −
+    `ASR_STH_Last40_Mean_pct`) ÷ `ASR_Mean_pulse_pct`, the responses being
+    the pulse-alone trials' startle amplitudes in order, worked out from the
+    means as shown. Above 0 = the startle got smaller. Blank with fewer
+    than first + last responses. The 10 and 40 are settings boxes
+    (`asr_sth_first`, `asr_sth_last`). "On the respective day" is read as
+    the session the video holds (one file, one row).
+    **It replaces** the earlier `ASR_ShortTermHabituation_pct` (100 × (1 −
+    last block's mean ÷ first block's)), which was a stand-in until the
+    user's calculation came. The per-block means the user asked about ("the
+    'block calculation' in the sheet") are kept as the **habituation
+    curve**, renamed so the sheet says what they are:
+    `ASR_Habituation_Responses1to10_Mean_pct`, `11to20`, … (the mean of each
+    run of `asr_block_trials` responses in order; not part of the score).
+    Asked of the user: whether to keep the curve at all.
+  - **The metadata standard is final** (user, 2026-11-12: "finalized the
+    meta data sheet"). `docs/metadata_standard.md` is schema 1, final, as it
+    stood that day; no field changed. From here an optional field, assay,
+    variant or phase can be added without a new version, and a rename,
+    removal or change of meaning makes schema 2 (which Track Tamer must
+    then read alongside schema 1). `room` stays as an optional field no app
+    needs to write. Creature Capture, Boom Box and Pellet Paparazzi were
+    told.
   - **No Stimuli step** (user, 2026-11-12: "in the video set up panel there
     is a step for stimulus which doesn't do anything"; then "You can remove
     it"). With a Boom Box info file the step only reported how many stimuli
